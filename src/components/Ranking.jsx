@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { getRankings } from '../utils/storage';
 import { isOnline, getOnlineRankings } from '../utils/supabase';
 import { playClick } from '../utils/sound';
+import PixelCharacter from './PixelCharacter';
+import { CHARACTER_PALETTES } from '../data/characters';
 
 export default function Ranking({ nickname, onBack }) {
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
 
-  // Get current month label (e.g. "3월")
   const monthLabel = `${new Date().getMonth() + 1}월`;
 
   useEffect(() => {
@@ -47,14 +49,16 @@ export default function Ranking({ nickname, onBack }) {
         {/* Header */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '50px 1fr 120px',
-          padding: '14px 16px',
-          fontSize: 12,
+          gridTemplateColumns: '40px 1fr 70px 70px',
+          padding: '14px 12px',
+          fontSize: 11,
           color: '#888',
           borderBottom: '2px solid #333366',
+          alignItems: 'center',
         }}>
           <span>순위</span>
           <span>닉네임</span>
+          <span style={{ textAlign: 'center' }}>캐릭터</span>
           <span style={{ textAlign: 'right' }}>총 획득</span>
         </div>
 
@@ -73,18 +77,19 @@ export default function Ranking({ nickname, onBack }) {
               key={entry.name}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '50px 1fr 120px',
-                padding: '14px 16px',
-                fontSize: 14,
+                gridTemplateColumns: '40px 1fr 70px 70px',
+                padding: '10px 12px',
+                fontSize: 13,
                 borderBottom: '1px solid #222244',
                 background: entry.name === nickname ? 'rgba(100, 170, 255, 0.15)' : 'transparent',
                 color: entry.name === nickname ? '#6af' : '#fff',
+                alignItems: 'center',
               }}
             >
               <span style={{
                 color: idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#cd7f32' : '#888',
                 fontWeight: idx < 3 ? 'bold' : 'normal',
-                fontSize: 16,
+                fontSize: 15,
               }}>
                 {idx + 1}
               </span>
@@ -92,17 +97,33 @@ export default function Ranking({ nickname, onBack }) {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}>
+                <PixelCharacter characterId={entry.equippedCharacter || 0} pixelSize={2} />
                 {entry.name}
               </span>
-              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 14 }}>
+              <span
+                onClick={() => { playClick(); setSelectedPlayer(entry); }}
+                style={{
+                  textAlign: 'center',
+                  color: '#aaa',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  textDecorationColor: '#555',
+                }}
+              >
+                {entry.characterCount + 1}
+              </span>
+              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 13 }}>
                 {entry.totalEarned.toLocaleString()} P
               </span>
             </div>
           ))
         )}
 
-        {/* Show message if all filtered out */}
         {!loading && rankings.length > 0 && rankings.filter(e => e.totalEarned > 0).length === 0 && (
           <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: '#666' }}>
             이번 달 기록이 없어요
@@ -116,6 +137,65 @@ export default function Ranking({ nickname, onBack }) {
       >
         돌아가기
       </button>
+
+      {/* Character collection popup */}
+      {selectedPlayer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 200,
+          }}
+          onClick={() => setSelectedPlayer(null)}
+        >
+          <div
+            style={{
+              background: '#141450',
+              border: '3px solid #6666aa',
+              padding: '24px 20px',
+              maxWidth: 360,
+              width: '90%',
+              textAlign: 'center',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              fontSize: 14,
+              color: 'var(--gold)',
+              marginBottom: 16,
+              textShadow: '1px 1px 0 #b8860b',
+            }}>
+              {selectedPlayer.name}의 캐릭터
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 12,
+              marginBottom: 20,
+            }}>
+              {(selectedPlayer.characters || [0]).map((charId) => (
+                <div key={charId} style={{ textAlign: 'center' }}>
+                  <PixelCharacter characterId={charId} pixelSize={3} />
+                  <div style={{ fontSize: 8, color: '#aaa', marginTop: 4 }}>
+                    {CHARACTER_PALETTES[charId]?.name || '???'}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              className="pixel-btn"
+              onClick={() => setSelectedPlayer(null)}
+              style={{ fontSize: 11 }}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

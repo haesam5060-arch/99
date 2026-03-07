@@ -161,7 +161,7 @@ export async function getOnlineRankings() {
   const currentMonth = getCurrentMonth();
   const { data } = await supabase
     .from('players')
-    .select('nickname, score, total_earned, earned_month, characters')
+    .select('nickname, score, total_earned, earned_month, characters, equipped_character')
     .order('total_earned', { ascending: false });
   if (!data) return [];
 
@@ -170,7 +170,9 @@ export async function getOnlineRankings() {
       name: p.nickname,
       score: p.score,
       totalEarned: p.earned_month === currentMonth ? p.total_earned : 0,
+      characters: p.characters,
       characterCount: p.characters.filter((c) => c !== 0).length,
+      equippedCharacter: p.equipped_character,
     }))
     .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
 }

@@ -94,7 +94,9 @@ export function getRankings() {
     .map(([name, data]) => ({
       name,
       totalEarned: data.earnedMonth === currentMonth ? (data.totalEarned || 0) : 0,
+      characters: data.characters,
       characterCount: data.characters.filter(id => id !== 0).length,
+      equippedCharacter: data.equippedCharacter,
       score: data.score,
     }))
     .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
