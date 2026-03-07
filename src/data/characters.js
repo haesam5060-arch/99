@@ -691,6 +691,7 @@ export const CHARACTER_LIST = Object.keys(CHARACTER_PALETTES).map((id) => {
   const data = CHARACTER_PALETTES[numId];
   let price = 1000;
   if (numId === 0) price = 0;
+  else if (numId === 24) price = 10000;
   else if (numId === 13) price = 5000;
   else if (data.premium) price = 3000;
   return { id: numId, name: data.name, price };

@@ -43,6 +43,10 @@ export const PREMIUM_PALETTES = {
     name: '드래곤', premium: true, spriteSize: 32,
     colors: { 1: '#cc2222', 2: '#881111', 3: '#ff6644', 4: '#222222', 5: '#ffaa33', 6: '#ffdd00', 7: '#ffffff', 8: '#ff4400', 9: '#aa0000', 10: '#ff8800' },
   },
+  24: {
+    name: '황금 지렁이', premium: true, spriteSize: 32,
+    colors: { 1: '#ffd700', 2: '#daa520', 3: '#fff4a0', 4: '#222222', 5: '#ffffff', 6: '#b8860b', 7: '#ff6600', 8: '#ffe566', 9: '#cc7700', 10: '#ff4444' },
+  },
 };
 
 export const PREMIUM_SPRITES = {
@@ -334,6 +338,9 @@ export const PREMIUM_SPRITES = {
     ],
   },
 
+  // 24: Golden Worm - golden body, crown, sparkles
+  24: { idle: createGoldenWormIdle(), attack: createGoldenWormAttack() },
+
   // 18-23: Using same pattern with unique silhouettes
   // 18: Wizard - pointy hat, robe, glowing staff
   18: { idle: createWizardIdle(), attack: createWizardAttack() },
@@ -566,5 +573,62 @@ function createDragonAttack() {
   s[6][24]=5; s[10][24]=5;
   // Wings spread more
   s[4][5]=2; s[4][6]=9; s[5][4]=2; s[5][5]=9;
+  return s;
+}
+
+function createGoldenWormIdle() {
+  const s = e();
+  // Crown (top) - 3-pointed golden crown with red gems
+  s[1][15]=6; s[1][17]=6; s[1][19]=6;
+  s[2][15]=1; s[2][16]=6; s[2][17]=1; s[2][18]=6; s[2][19]=1;
+  s[3][14]=6; s[3][15]=1; s[3][16]=1; s[3][17]=1; s[3][18]=1; s[3][19]=1; s[3][20]=6;
+  s[4][14]=6; s[4][15]=10; s[4][16]=1; s[4][17]=10; s[4][18]=1; s[4][19]=10; s[4][20]=6;
+  // Head - big round golden head
+  for(let r=5; r<=10; r++) for(let c=12; c<=22; c++) s[r][c]=1;
+  s[5][12]=0; s[5][22]=0; s[10][12]=0; s[10][22]=0;
+  // Highlight on head
+  s[5][14]=3; s[5][15]=3; s[6][13]=3;
+  // Eyes - big expressive
+  s[7][14]=5; s[7][15]=4; s[7][19]=5; s[7][20]=4;
+  s[8][14]=5; s[8][15]=4; s[8][19]=5; s[8][20]=4;
+  // Cheek blush
+  s[9][13]=8; s[9][21]=8;
+  // Mouth
+  s[9][16]=6; s[9][17]=2; s[9][18]=6;
+  // Neck
+  for(let c=14; c<=20; c++) { s[11][c]=1; s[12][c]=2; }
+  // Body curve - thick golden worm body curving down-left
+  for(let c=13; c<=19; c++) { s[13][c]=1; s[14][c]=2; }
+  s[13][12]=2; s[14][12]=9;
+  for(let c=11; c<=17; c++) { s[15][c]=1; s[16][c]=2; }
+  s[15][10]=2; s[16][10]=9;
+  for(let c=9; c<=15; c++) { s[17][c]=1; s[18][c]=2; }
+  s[17][8]=2; s[18][8]=9;
+  // Lower body curves back right
+  for(let c=8; c<=14; c++) { s[19][c]=1; s[20][c]=2; }
+  for(let c=9; c<=15; c++) { s[21][c]=1; s[22][c]=2; }
+  for(let c=11; c<=16; c++) { s[23][c]=1; }
+  s[24][12]=2; s[24][13]=2; s[24][14]=2;
+  // Body highlight/shine
+  s[13][15]=3; s[15][13]=3; s[17][11]=3; s[19][10]=3; s[21][11]=3;
+  // Sparkle effects around body
+  s[6][24]=8; s[3][24]=3; s[10][25]=8; s[14][24]=3;
+  s[12][9]=8; s[16][7]=3; s[20][6]=8;
+  return s;
+}
+
+function createGoldenWormAttack() {
+  const s = createGoldenWormIdle();
+  // Crown sparkle burst
+  s[0][14]=8; s[0][17]=3; s[0][20]=8;
+  s[1][13]=3; s[1][21]=3;
+  // More sparkle explosion
+  s[5][24]=8; s[4][25]=3; s[6][25]=8; s[3][26]=3;
+  s[7][24]=8; s[8][25]=3; s[9][24]=8;
+  s[7][26]=1; s[8][27]=1; s[6][27]=3;
+  // Body glow intensifies
+  s[13][15]=8; s[15][13]=8; s[17][11]=8; s[19][10]=8; s[21][11]=8;
+  // Mouth open (attack face)
+  s[9][16]=4; s[9][17]=6; s[9][18]=4;
   return s;
 }

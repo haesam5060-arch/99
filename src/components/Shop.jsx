@@ -12,6 +12,7 @@ const SCHOOL_CARD_PRICE = 5000;
 
 function getPrice(id) {
   if (id === 0) return 0;
+  if (id === 24) return 10000;
   if (id === SCHOOL_CARD_ID) return SCHOOL_CARD_PRICE;
   const data = CHARACTER_PALETTES[id];
   if (data?.premium) return 3000;
@@ -311,7 +312,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                   구매
                 </button>
               )}
-              {char.owned && !char.equipped && char.id !== 0 && (
+              {char.owned && !char.equipped && (
                 <>
                   <button
                     onClick={() => handleEquip(char.id)}
@@ -327,20 +328,22 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                   >
                     장착
                   </button>
-                  <button
-                    onClick={() => handleSell(char.id)}
-                    style={{
-                      background: '#5a2a2a',
-                      border: '2px solid #ff6666',
-                      color: '#ff6666',
-                      fontFamily: "'Press Start 2P', monospace",
-                      fontSize: 8,
-                      padding: '4px 8px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    판매
-                  </button>
+                  {char.id !== 0 && (
+                    <button
+                      onClick={() => handleSell(char.id)}
+                      style={{
+                        background: '#5a2a2a',
+                        border: '2px solid #ff6666',
+                        color: '#ff6666',
+                        fontFamily: "'Press Start 2P', monospace",
+                        fontSize: 8,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      판매
+                    </button>
+                  )}
                 </>
               )}
             </div>

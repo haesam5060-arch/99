@@ -54,6 +54,8 @@ const MISSILE_STYLES = {
   22: { head: '#ffffff', mid: '#88ddff', tail: '#ffaacc', size: 18, trail: 6, name: 'ice', premium: true },
   // 드래곤 - 거대 화염구
   23: { head: '#ffffff', mid: '#ff4400', tail: '#cc2222', size: 22, trail: 8, name: 'megafire', premium: true },
+  // 황금 지렁이 - 거대 황금 에너지 폭발
+  24: { head: '#ffffff', mid: '#ffd700', tail: '#ff6600', size: 26, trail: 10, name: 'goldblast', premium: true },
 };
 
 export function getMissileStyle(characterId) {
