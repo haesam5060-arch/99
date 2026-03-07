@@ -61,7 +61,7 @@ export default function Ranking({ nickname, onBack }) {
         }}>
           <span>순위</span>
           <span>닉네임</span>
-          <span style={{ textAlign: 'center' }}>캐릭터</span>
+          <span style={{ textAlign: 'center' }}>보유 캐릭터</span>
           <span style={{ textAlign: 'right' }}>총 획득</span>
         </div>
 
