@@ -52,7 +52,7 @@ export default function Ranking({ nickname, onBack }) {
         {/* Header */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '40px 1fr 70px 70px',
+          gridTemplateColumns: '40px 1fr 60px 100px',
           padding: '14px 12px',
           fontSize: 11,
           color: '#888',
@@ -80,7 +80,7 @@ export default function Ranking({ nickname, onBack }) {
               key={entry.name}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '40px 1fr 70px 70px',
+                gridTemplateColumns: '40px 1fr 60px 100px',
                 padding: '10px 12px',
                 fontSize: 13,
                 borderBottom: '1px solid #222244',
@@ -124,7 +124,7 @@ export default function Ranking({ nickname, onBack }) {
               >
                 {entry.characterCount + 1}
               </span>
-              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 13 }}>
+              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 13, whiteSpace: 'nowrap' }}>
                 {entry.totalEarned.toLocaleString()} P
               </span>
             </div>
