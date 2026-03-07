@@ -18,6 +18,7 @@ export default function NicknameScreen({ onStart }) {
     if (trimmed.length > 8) { setError('8자 이하로 입력해주세요!'); return; }
     if (trimmed.includes(' ')) { setError('공백은 사용할 수 없어요!'); return; }
     if (containsProfanity(trimmed)) { setError('사용할 수 없는 닉네임이에요!'); return; }
+    if (/[ㄱ-ㅎㅏ-ㅣ]/.test(trimmed)) { setError('완성된 글자만 사용해주세요!'); return; }
 
     if (online && !/^\d{4}$/.test(password)) {
       setError('비밀번호는 숫자 4자리를 입력해주세요!');

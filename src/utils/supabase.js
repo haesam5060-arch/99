@@ -155,6 +155,30 @@ export async function equipOnlineCharacter(nickname, characterId) {
   return data;
 }
 
+// Sell character (refund partial price)
+export async function sellOnlineCharacter(nickname, characterId, refund) {
+  if (!supabase) return { success: false };
+  const player = await getOnlinePlayer(nickname);
+  if (!player) return { success: false };
+  if (!player.characters.includes(characterId)) return { success: false };
+  if (characterId === 0) return { success: false };
+
+  const newChars = player.characters.filter(c => c !== characterId);
+  const newEquipped = player.equipped_character === characterId ? 0 : player.equipped_character;
+  const { data } = await supabase
+    .from('players')
+    .update({
+      score: player.score + refund,
+      characters: newChars,
+      equipped_character: newEquipped,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('nickname', nickname)
+    .select()
+    .single();
+  return { success: true, player: data };
+}
+
 // Update school name
 export async function updateSchoolName(nickname, schoolName) {
   if (!supabase) return null;

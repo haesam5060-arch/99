@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CHARACTER_PALETTES } from '../data/characters';
-import { purchaseCharacter, equipCharacter } from '../utils/storage';
-import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName } from '../utils/supabase';
+import { purchaseCharacter, equipCharacter, sellCharacter } from '../utils/storage';
+import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName, sellOnlineCharacter } from '../utils/supabase';
 import { playClick, playPurchase } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
@@ -10,8 +10,14 @@ import { containsProfanity } from '../utils/profanityFilter';
 const SCHOOL_CARD_ID = 13;
 const SCHOOL_CARD_PRICE = 5000;
 
+function getPrice(id) {
+  if (id === 0) return 0;
+  if (id === SCHOOL_CARD_ID) return SCHOOL_CARD_PRICE;
+  return 1000;
+}
+
 export default function Shop({ player, nickname, onUpdate, onBack }) {
-  const [confirm, setConfirm] = useState(null);
+  const [confirm, setConfirm] = useState(null); // { type: 'buy'|'sell', id }
   const [loading, setLoading] = useState(false);
   const [schoolInput, setSchoolInput] = useState('');
   const [schoolError, setSchoolError] = useState('');
@@ -20,14 +26,21 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     playClick();
     if (id === SCHOOL_CARD_ID) {
       setSchoolInput('');
+      setSchoolError('');
     }
-    setConfirm(id);
+    setConfirm({ type: 'buy', id });
+  };
+
+  const handleSell = (id) => {
+    playClick();
+    setConfirm({ type: 'sell', id });
   };
 
   const confirmBuy = async () => {
-    if (confirm === null) return;
-    const isSchoolCard = confirm === SCHOOL_CARD_ID;
-    const price = isSchoolCard ? SCHOOL_CARD_PRICE : 1000;
+    if (!confirm || confirm.type !== 'buy') return;
+    const id = confirm.id;
+    const isSchoolCard = id === SCHOOL_CARD_ID;
+    const price = getPrice(id);
 
     if (isSchoolCard && schoolInput.trim().length < 1) return;
     if (isSchoolCard && containsProfanity(schoolInput.trim())) {
@@ -39,7 +52,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     setLoading(true);
 
     if (isOnline()) {
-      const result = await purchaseOnlineCharacter(nickname, confirm, price);
+      const result = await purchaseOnlineCharacter(nickname, id, price);
       if (result.success) {
         playPurchase();
         if (isSchoolCard) {
@@ -53,18 +66,47 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
         });
       }
     } else {
-      const result = purchaseCharacter(nickname, confirm, price);
+      const result = purchaseCharacter(nickname, id, price);
       if (result.success) {
         playPurchase();
         if (isSchoolCard) {
           result.player.schoolName = schoolInput.trim();
-          // Save locally
           const players = JSON.parse(localStorage.getItem('gugudan_players') || '{}');
           if (players[nickname]) {
             players[nickname].schoolName = schoolInput.trim();
             localStorage.setItem('gugudan_players', JSON.stringify(players));
           }
         }
+        onUpdate(result.player);
+      }
+    }
+
+    setConfirm(null);
+    setLoading(false);
+  };
+
+  const confirmSell = async () => {
+    if (!confirm || confirm.type !== 'sell') return;
+    const id = confirm.id;
+    const refund = Math.floor(getPrice(id) / 2);
+
+    setLoading(true);
+
+    if (isOnline()) {
+      const result = await sellOnlineCharacter(nickname, id, refund);
+      if (result.success) {
+        playClick();
+        onUpdate({
+          score: result.player.score,
+          characters: result.player.characters,
+          equippedCharacter: result.player.equipped_character,
+          schoolName: id === SCHOOL_CARD_ID ? '' : player.schoolName,
+        });
+      }
+    } else {
+      const result = sellCharacter(nickname, id, refund);
+      if (result.success) {
+        playClick();
         onUpdate(result.player);
       }
     }
@@ -96,9 +138,13 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     name: data.name,
     owned: player.characters.includes(Number(id)),
     equipped: player.equippedCharacter === Number(id),
-    price: Number(id) === 0 ? 0 : Number(id) === SCHOOL_CARD_ID ? SCHOOL_CARD_PRICE : 1000,
+    price: getPrice(Number(id)),
     isSchoolCard: !!data.isSchoolCard,
   }));
+
+  const isPopupOpen = confirm !== null;
+  const popupId = confirm?.id;
+  const popupType = confirm?.type;
 
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 20 }}>
@@ -109,8 +155,8 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
         {player.score.toLocaleString()} P
       </div>
 
-      {/* Confirm popup */}
-      {confirm !== null && (
+      {/* Popup */}
+      {isPopupOpen && (
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
@@ -128,13 +174,23 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
             maxWidth: 320,
             width: '90%',
           }}>
-            {confirm === SCHOOL_CARD_ID ? (
-              <SchoolCardCharacter schoolName={schoolInput || '학교'} pixelSize={4} />
+            {popupId === SCHOOL_CARD_ID ? (
+              <SchoolCardCharacter schoolName={popupType === 'buy' ? (schoolInput || '학교') : (player.schoolName || '학교')} pixelSize={4} />
             ) : (
-              <PixelCharacter characterId={confirm} pixelSize={4} />
+              <PixelCharacter characterId={popupId} pixelSize={4} />
             )}
 
-            {confirm === SCHOOL_CARD_ID ? (
+            {popupType === 'sell' ? (
+              <div style={{ fontSize: 10, margin: '16px 0', lineHeight: 2 }}>
+                [{CHARACTER_PALETTES[popupId]?.isSchoolCard
+                  ? (player.schoolName ? `${player.schoolName}초` : '학교 카드')
+                  : CHARACTER_PALETTES[popupId]?.name}]를<br />
+                판매할까요?<br />
+                <span style={{ color: 'var(--gold)' }}>
+                  +{Math.floor(getPrice(popupId) / 2).toLocaleString()}P 환급
+                </span>
+              </div>
+            ) : popupId === SCHOOL_CARD_ID ? (
               <>
                 <div style={{ fontSize: 10, margin: '16px 0 10px', lineHeight: 2 }}>
                   학교 이름을 입력하세요<br />
@@ -143,7 +199,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                 <input
                   type="text"
                   value={schoolInput}
-                  onChange={(e) => setSchoolInput(e.target.value.slice(0, 4))}
+                  onChange={(e) => { setSchoolInput(e.target.value.slice(0, 4)); setSchoolError(''); }}
                   maxLength={4}
                   placeholder="중촌"
                   autoFocus
@@ -169,20 +225,20 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
               </>
             ) : (
               <div style={{ fontSize: 10, margin: '16px 0', lineHeight: 2 }}>
-                1,000점을 사용하여<br />
-                [{CHARACTER_PALETTES[confirm]?.name}]를<br />
+                {getPrice(popupId).toLocaleString()}점을 사용하여<br />
+                [{CHARACTER_PALETTES[popupId]?.name}]를<br />
                 구매할까요?
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button
-                className="pixel-btn gold"
-                onClick={confirmBuy}
-                disabled={loading || (confirm === SCHOOL_CARD_ID && schoolInput.trim().length < 1)}
+                className={`pixel-btn ${popupType === 'sell' ? '' : 'gold'}`}
+                onClick={popupType === 'sell' ? confirmSell : confirmBuy}
+                disabled={loading || (popupType === 'buy' && popupId === SCHOOL_CARD_ID && schoolInput.trim().length < 1)}
                 style={{ flex: 1, opacity: loading ? 0.6 : 1 }}
               >
-                {loading ? '...' : '구매'}
+                {loading ? '...' : popupType === 'sell' ? '판매' : '구매'}
               </button>
               <button className="pixel-btn red" onClick={() => setConfirm(null)} style={{ flex: 1 }}>
                 취소
@@ -203,25 +259,17 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
         {characters.map((char) => (
           <div
             key={char.id}
-            onClick={() => {
-              if (char.owned && !char.equipped) handleEquip(char.id);
-              else if (!char.owned && player.score >= char.price) handleBuy(char.id);
-            }}
             style={{
               background: char.equipped ? '#1a3a5c' : '#141450',
               border: `3px solid ${char.equipped ? '#5dde9e' : char.owned ? '#6666aa' : char.isSchoolCard ? '#ffd700' : '#333355'}`,
               padding: 14,
               textAlign: 'center',
-              cursor: char.owned || player.score >= char.price ? 'pointer' : 'default',
               opacity: !char.owned && player.score < char.price ? 0.4 : 1,
               transition: 'transform 0.1s',
             }}
           >
             {char.isSchoolCard ? (
-              <SchoolCardCharacter
-                schoolName={player.schoolName || '학교'}
-                pixelSize={4}
-              />
+              <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
             ) : (
               <PixelCharacter characterId={char.id} pixelSize={4} />
             )}
@@ -234,6 +282,58 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
               color: char.equipped ? '#5dde9e' : char.owned ? '#aaa' : 'var(--gold)',
             }}>
               {char.equipped ? '장착중' : char.owned ? '보유' : `${char.price.toLocaleString()}P`}
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, justifyContent: 'center' }}>
+              {!char.owned && player.score >= char.price && (
+                <button
+                  onClick={() => handleBuy(char.id)}
+                  style={{
+                    background: '#b8860b',
+                    border: '2px solid #daa520',
+                    color: 'white',
+                    fontFamily: "'Press Start 2P', monospace",
+                    fontSize: 8,
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  구매
+                </button>
+              )}
+              {char.owned && !char.equipped && char.id !== 0 && (
+                <>
+                  <button
+                    onClick={() => handleEquip(char.id)}
+                    style={{
+                      background: '#2a5a3a',
+                      border: '2px solid #5dde9e',
+                      color: '#5dde9e',
+                      fontFamily: "'Press Start 2P', monospace",
+                      fontSize: 8,
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    장착
+                  </button>
+                  <button
+                    onClick={() => handleSell(char.id)}
+                    style={{
+                      background: '#5a2a2a',
+                      border: '2px solid #ff6666',
+                      color: '#ff6666',
+                      fontFamily: "'Press Start 2P', monospace",
+                      fontSize: 8,
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    판매
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}

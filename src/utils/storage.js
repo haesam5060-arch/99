@@ -78,6 +78,21 @@ export function purchaseCharacter(nickname, characterId, price = 1000) {
   return { success: true, player: players[nickname] };
 }
 
+export function sellCharacter(nickname, characterId, refund) {
+  const players = getAllPlayers();
+  if (!players[nickname]) return { success: false };
+  if (!players[nickname].characters.includes(characterId)) return { success: false };
+  if (characterId === 0) return { success: false };
+
+  players[nickname].characters = players[nickname].characters.filter(c => c !== characterId);
+  if (players[nickname].equippedCharacter === characterId) {
+    players[nickname].equippedCharacter = 0;
+  }
+  players[nickname].score += refund;
+  savePlayers(players);
+  return { success: true, player: players[nickname] };
+}
+
 export function equipCharacter(nickname, characterId) {
   const players = getAllPlayers();
   if (!players[nickname]) return null;
