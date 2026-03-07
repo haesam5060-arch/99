@@ -17,7 +17,7 @@ export default function SchoolCardCharacter({ schoolName = '중촌', pixelSize =
     const isAttack = frame === 'attack';
     const borderColor = '#2266dd';
     const bgColor = '#4488ff';
-    const innerBg = '#66aaff';
+    const innerBg = '#ddeeff';
     const gold = '#ffd700';
 
     // Draw card background
@@ -28,56 +28,51 @@ export default function SchoolCardCharacter({ schoolName = '중촌', pixelSize =
 
     // Border
     ctx.fillStyle = borderColor;
-    ctx.fillRect(cardX * p, 1 * p, cardW * p, 12 * p);
+    ctx.fillRect(cardX * p, 1 * p, cardW * p, 13 * p);
 
     // Inner background
     ctx.fillStyle = bgColor;
-    ctx.fillRect((cardX + 1) * p, 2 * p, (cardW - 2) * p, 10 * p);
+    ctx.fillRect((cardX + 1) * p, 2 * p, (cardW - 2) * p, 11 * p);
 
-    // Text area (white-ish)
+    // Text area (light background for readability)
     ctx.fillStyle = innerBg;
-    ctx.fillRect((cardX + 2) * p, 3 * p, (cardW - 4) * p, 6 * p);
+    ctx.fillRect((cardX + 2) * p, 3 * p, (cardW - 4) * p, 7 * p);
 
-    // Gold stripe
+    // Gold stripe at bottom
     ctx.fillStyle = gold;
-    ctx.fillRect((cardX + 2) * p, 9 * p, (cardW - 4) * p, 2 * p);
+    ctx.fillRect((cardX + 2) * p, 10 * p, (cardW - 4) * p, 2 * p);
 
-    // Render school name as pixel text
-    const textCanvas = document.createElement('canvas');
-    textCanvas.width = 64;
-    textCanvas.height = 32;
-    const tCtx = textCanvas.getContext('2d');
-    tCtx.imageSmoothingEnabled = false;
-
-    // Draw text small to get pixel effect
+    // Render school name text directly on canvas
     const displayText = schoolName.slice(0, 4);
-    const fontSize = displayText.length <= 2 ? 11 : displayText.length === 3 ? 9 : 7;
-    tCtx.fillStyle = '#222244';
-    tCtx.font = `bold ${fontSize}px sans-serif`;
-    tCtx.textAlign = 'center';
-    tCtx.textBaseline = 'middle';
-    tCtx.fillText(displayText, 32, 16);
+    const textAreaW = (cardW - 4) * p;
+    const textAreaH = 7 * p;
+    const textAreaX = (cardX + 2) * p;
+    const textAreaY = 3 * p;
 
-    // Sample the text canvas and render as pixels onto the card
-    const textAreaW = cardW - 4;
-    const textAreaH = 6;
-    const textAreaX = cardX + 2;
-    const textAreaY = 3;
-    const imgData = tCtx.getImageData(0, 0, 64, 32);
+    // Choose font size based on text length and pixel size
+    const baseFontSize = Math.max(Math.floor(p * 2.5), 8);
+    const fontSize = displayText.length <= 2 ? baseFontSize : Math.max(Math.floor(baseFontSize * 0.75), 6);
 
-    for (let py = 0; py < textAreaH; py++) {
-      for (let px = 0; px < textAreaW; px++) {
-        // Map card pixel to text canvas pixel
-        const tx = Math.floor((px / textAreaW) * 64);
-        const ty = Math.floor((py / textAreaH) * 32);
-        const idx = (ty * 64 + tx) * 4;
-        const alpha = imgData.data[idx + 3];
-        if (alpha > 80) {
-          ctx.fillStyle = '#222244';
-          ctx.fillRect((textAreaX + px) * p, (textAreaY + py) * p, p, p);
-        }
-      }
-    }
+    ctx.fillStyle = '#112244';
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Save, clip to text area, draw text, restore
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(textAreaX, textAreaY, textAreaW, textAreaH);
+    ctx.clip();
+    ctx.fillText(displayText, textAreaX + textAreaW / 2, textAreaY + textAreaH / 2);
+    ctx.restore();
+
+    // Small "초" label on gold stripe
+    const labelSize = Math.max(Math.floor(p * 1.2), 5);
+    ctx.fillStyle = '#885500';
+    ctx.font = `bold ${labelSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('초', (cardX + cardW / 2) * p, 11 * p);
   }, [schoolName, pixelSize, frame]);
 
   const size = 16 * pixelSize;

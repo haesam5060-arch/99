@@ -22,7 +22,7 @@ export const CHARACTER_PALETTES = {
   10: { name: '닭', colors: { 1: '#ffffff', 2: '#ff3333', 3: '#ffcc00', 4: '#222222', 5: '#eeeeee', 6: '#ff6633' } },
   11: { name: '개', colors: { 1: '#c8a070', 2: '#a07848', 3: '#6B4914', 4: '#222222', 5: '#ffffff', 6: '#e0c0a0' } },
   12: { name: '돼지', colors: { 1: '#ffaacc', 2: '#ff88aa', 3: '#ff6699', 4: '#222222', 5: '#ffffff', 6: '#ffccdd' } },
-  13: { name: '학교 카드', colors: { 1: '#4488ff', 2: '#2266dd', 3: '#ffffff', 4: '#222222', 5: '#ffd700', 6: '#66aaff' }, isSchoolCard: true },
+  13: { name: '학교 이름 카드!', colors: { 1: '#4488ff', 2: '#2266dd', 3: '#ffffff', 4: '#222222', 5: '#ffd700', 6: '#66aaff' }, isSchoolCard: true },
 };
 
 // _ = transparent, numbers = color indices from palette
