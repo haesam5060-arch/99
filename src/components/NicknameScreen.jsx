@@ -81,7 +81,7 @@ export default function NicknameScreen({ onStart }) {
       </div>
 
       <form onSubmit={handleSubmit} style={{ textAlign: 'center', width: '100%' }}>
-        <div style={{ marginBottom: 12, fontSize: 16 }}>
+        <div style={{ marginBottom: 16, fontSize: 16 }}>
           닉네임을 입력하세요
         </div>
         <input
@@ -107,7 +107,7 @@ export default function NicknameScreen({ onStart }) {
 
         {online && (
           <>
-            <div style={{ marginBottom: 8, marginTop: 20, fontSize: 12, color: '#aaa' }}>
+            <div style={{ marginTop: 28, marginBottom: 16, fontSize: 12, color: '#aaa' }}>
               숫자 4자리 비밀번호
             </div>
             <input
@@ -135,7 +135,7 @@ export default function NicknameScreen({ onStart }) {
                 letterSpacing: '8px',
               }}
             />
-            <div style={{ fontSize: 9, color: '#666', marginTop: 10, marginBottom: 0, lineHeight: 1.8 }}>
+            <div style={{ fontSize: 9, color: '#666', marginTop: 14, lineHeight: 1.8 }}>
               비밀번호를 잊으면 찾을 수 없으니<br />
               쉬운 숫자 4자리를 입력해주세요!<br />
               처음이면 자동으로 가입됩니다.
@@ -144,11 +144,11 @@ export default function NicknameScreen({ onStart }) {
         )}
 
         {error && (
-          <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 12 }}>
+          <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 16 }}>
             {error}
           </div>
         )}
-        <div style={{ marginTop: 24 }}>
+        <div style={{ marginTop: 28 }}>
           <button
             type="submit"
             className="pixel-btn gold"
