@@ -1,9 +1,15 @@
 import PixelCharacter from './PixelCharacter';
+import SchoolCardCharacter from './SchoolCardCharacter';
 import { CHARACTER_PALETTES } from '../data/characters';
 import { playClick } from '../utils/sound';
 
+const SCHOOL_CARD_ID = 13;
+
 export default function MainScreen({ player, nickname, onNavigate }) {
-  const charName = CHARACTER_PALETTES[player.equippedCharacter]?.name || '지렁이';
+  const isSchoolCard = player.equippedCharacter === SCHOOL_CARD_ID;
+  const charName = isSchoolCard
+    ? (player.schoolName ? `${player.schoolName}초` : '학교 카드')
+    : (CHARACTER_PALETTES[player.equippedCharacter]?.name || '지렁이');
 
   const handleNav = (screen) => {
     playClick();
@@ -20,7 +26,11 @@ export default function MainScreen({ player, nickname, onNavigate }) {
         <div style={{ fontSize: 16, marginBottom: 10, color: '#aaaaff' }}>
           {nickname}
         </div>
-        <PixelCharacter characterId={player.equippedCharacter} pixelSize={6} />
+        {isSchoolCard ? (
+          <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={6} mode="icon" />
+        ) : (
+          <PixelCharacter characterId={player.equippedCharacter} pixelSize={6} />
+        )}
         <div style={{ fontSize: 12, marginTop: 8, color: '#aaa' }}>
           {charName}
         </div>

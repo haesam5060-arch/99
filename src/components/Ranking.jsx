@@ -3,7 +3,10 @@ import { getRankings } from '../utils/storage';
 import { isOnline, getOnlineRankings } from '../utils/supabase';
 import { playClick } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
+import SchoolCardCharacter from './SchoolCardCharacter';
 import { CHARACTER_PALETTES } from '../data/characters';
+
+const SCHOOL_CARD_ID = 13;
 
 export default function Ranking({ nickname, onBack }) {
   const [rankings, setRankings] = useState([]);
@@ -101,7 +104,11 @@ export default function Ranking({ nickname, onBack }) {
                 alignItems: 'center',
                 gap: 6,
               }}>
-                <PixelCharacter characterId={entry.equippedCharacter || 0} pixelSize={2} />
+                {entry.equippedCharacter === SCHOOL_CARD_ID ? (
+                  <SchoolCardCharacter schoolName={entry.schoolName || '학교'} pixelSize={2} mode="icon" />
+                ) : (
+                  <PixelCharacter characterId={entry.equippedCharacter || 0} pixelSize={2} />
+                )}
                 {entry.name}
               </span>
               <span
@@ -179,9 +186,15 @@ export default function Ranking({ nickname, onBack }) {
             }}>
               {(selectedPlayer.characters || [0]).map((charId) => (
                 <div key={charId} style={{ textAlign: 'center' }}>
-                  <PixelCharacter characterId={charId} pixelSize={3} />
+                  {charId === SCHOOL_CARD_ID ? (
+                    <SchoolCardCharacter schoolName={selectedPlayer.schoolName || '학교'} pixelSize={3} mode="icon" />
+                  ) : (
+                    <PixelCharacter characterId={charId} pixelSize={3} />
+                  )}
                   <div style={{ fontSize: 8, color: '#aaa', marginTop: 4 }}>
-                    {CHARACTER_PALETTES[charId]?.name || '???'}
+                    {charId === SCHOOL_CARD_ID
+                      ? (selectedPlayer.schoolName ? `${selectedPlayer.schoolName}초` : '학교 카드')
+                      : (CHARACTER_PALETTES[charId]?.name || '???')}
                   </div>
                 </div>
               ))}

@@ -1,7 +1,8 @@
 import { useRef, useEffect } from 'react';
 
-// Renders Korean text as pixel art on a card background
-export default function SchoolCardCharacter({ schoolName = '중촌', pixelSize = 4, frame = 'idle' }) {
+// Renders school name as a styled text badge character
+// mode: 'card' for shop display (card form), 'icon' for inline icon (text badge)
+export default function SchoolCardCharacter({ schoolName = '중촌', pixelSize = 4, frame = 'idle', mode = 'card' }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -12,61 +13,92 @@ export default function SchoolCardCharacter({ schoolName = '중촌', pixelSize =
     canvas.width = size;
     canvas.height = size;
     ctx.clearRect(0, 0, size, size);
-
-    const isAttack = frame === 'attack';
-    const borderColor = '#2266dd';
-    const bgColor = '#4488ff';
-    const innerBg = '#eef4ff';
-    const gold = '#ffd700';
+    ctx.imageSmoothingEnabled = true;
 
     const p = pixelSize;
-    const offset = isAttack ? 0 : 1;
-    const cardW = isAttack ? 16 : 14;
-    const cardX = offset;
-
-    // Border
-    ctx.fillStyle = borderColor;
-    ctx.fillRect(cardX * p, 0, cardW * p, 15 * p);
-
-    // Inner background
-    ctx.fillStyle = bgColor;
-    ctx.fillRect((cardX + 1) * p, 1 * p, (cardW - 2) * p, 13 * p);
-
-    // Text area - large
-    ctx.fillStyle = innerBg;
-    ctx.fillRect((cardX + 2) * p, 2 * p, (cardW - 4) * p, 9 * p);
-
-    // Gold stripe at bottom
-    ctx.fillStyle = gold;
-    ctx.fillRect((cardX + 2) * p, 11 * p, (cardW - 4) * p, 2 * p);
-
-    // Render school name
     const displayText = schoolName.slice(0, 4);
-    const textAreaW = (cardW - 4) * p;
-    const textAreaX = (cardX + 2) * p;
-    const textCenterX = textAreaX + textAreaW / 2;
-    const textCenterY = 6.5 * p;
+    const isAttack = frame === 'attack';
 
-    // Font size scales with pixelSize - make it big and readable
-    const fontSize = displayText.length <= 2
-      ? Math.round(p * 3.5)
-      : displayText.length === 3
-        ? Math.round(p * 2.8)
-        : Math.round(p * 2.2);
+    if (mode === 'icon') {
+      // Icon mode: circular/rounded badge with school name
+      const cx = size / 2;
+      const cy = size / 2;
+      const r = 7 * p;
 
-    ctx.imageSmoothingEnabled = true;
-    ctx.fillStyle = '#112244';
-    ctx.font = `bold ${fontSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(displayText, textCenterX, textCenterY);
+      // Badge background
+      ctx.fillStyle = '#3366cc';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
 
-    // "초" label on gold stripe
-    const labelSize = Math.max(Math.round(p * 1.6), 6);
-    ctx.fillStyle = '#775500';
-    ctx.font = `bold ${labelSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
-    ctx.fillText('초', textCenterX, 12 * p);
-  }, [schoolName, pixelSize, frame]);
+      // Inner circle
+      ctx.fillStyle = '#4488ff';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - p, 0, Math.PI * 2);
+      ctx.fill();
+
+      // School name text
+      const fontSize = displayText.length <= 2
+        ? Math.round(p * 3.2)
+        : Math.round(p * 2.4);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${fontSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(displayText, cx, cy - p * 0.3);
+
+      // Small "초" at bottom
+      const labelSize = Math.max(Math.round(p * 1.3), 5);
+      ctx.fillStyle = '#ffd700';
+      ctx.font = `bold ${labelSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+      ctx.fillText('초', cx, cy + p * 2.5);
+    } else {
+      // Card mode: full card display for shop
+      const offset = isAttack ? 0 : 1;
+      const cardW = isAttack ? 16 : 14;
+      const cardX = offset;
+
+      // Border
+      ctx.fillStyle = '#2266dd';
+      ctx.fillRect(cardX * p, 0, cardW * p, 15 * p);
+
+      // Inner background
+      ctx.fillStyle = '#4488ff';
+      ctx.fillRect((cardX + 1) * p, 1 * p, (cardW - 2) * p, 13 * p);
+
+      // Text area
+      ctx.fillStyle = '#eef4ff';
+      ctx.fillRect((cardX + 2) * p, 2 * p, (cardW - 4) * p, 9 * p);
+
+      // Gold stripe
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect((cardX + 2) * p, 11 * p, (cardW - 4) * p, 2 * p);
+
+      // School name
+      const textAreaW = (cardW - 4) * p;
+      const textAreaX = (cardX + 2) * p;
+      const textCenterX = textAreaX + textAreaW / 2;
+
+      const fontSize = displayText.length <= 2
+        ? Math.round(p * 3.5)
+        : displayText.length === 3
+          ? Math.round(p * 2.8)
+          : Math.round(p * 2.2);
+
+      ctx.fillStyle = '#112244';
+      ctx.font = `bold ${fontSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(displayText, textCenterX, 6.5 * p);
+
+      // "초" label
+      const labelSize = Math.max(Math.round(p * 1.6), 6);
+      ctx.fillStyle = '#775500';
+      ctx.font = `bold ${labelSize}px "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+      ctx.fillText('초', textCenterX, 12 * p);
+    }
+  }, [schoolName, pixelSize, frame, mode]);
 
   const size = 16 * pixelSize;
   return (

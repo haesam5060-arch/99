@@ -4,6 +4,9 @@ import { calculateScore, WRONG_PENALTY, FALL_DURATION } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playSelect, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
 import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
 import PixelCharacter from './PixelCharacter';
+import SchoolCardCharacter from './SchoolCardCharacter';
+
+const SCHOOL_CARD_ID = 13;
 
 export default function GamePlay({
   mode,
@@ -444,11 +447,20 @@ export default function GamePlay({
           flexDirection: 'column',
           alignItems: 'center',
         }}>
-          <PixelCharacter
-            characterId={player.equippedCharacter}
-            frame={charFrame}
-            pixelSize={4}
-          />
+          {player.equippedCharacter === SCHOOL_CARD_ID ? (
+            <SchoolCardCharacter
+              schoolName={player.schoolName || '학교'}
+              frame={charFrame}
+              pixelSize={4}
+              mode="icon"
+            />
+          ) : (
+            <PixelCharacter
+              characterId={player.equippedCharacter}
+              frame={charFrame}
+              pixelSize={4}
+            />
+          )}
           <EarthCanvas />
         </div>
       </div>
