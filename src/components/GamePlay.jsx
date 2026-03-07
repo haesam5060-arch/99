@@ -256,48 +256,6 @@ export default function GamePlay({
     }));
   };
 
-  if (quitResult) {
-    return (
-      <div className="game-container" style={{ justifyContent: 'center' }}>
-        <div style={{
-          fontSize: 22,
-          color: 'var(--gold)',
-          textAlign: 'center',
-          marginBottom: 24,
-          textShadow: '2px 2px 0 #b8860b',
-        }}>
-          게임 종료
-        </div>
-
-        <div style={{
-          background: '#141450',
-          border: '3px solid #333366',
-          padding: 28,
-          textAlign: 'center',
-          marginBottom: 30,
-          width: '100%',
-          lineHeight: 2.4,
-        }}>
-          <div style={{ fontSize: 14, marginBottom: 10 }}>
-            진행: {currentDan}단
-          </div>
-          <div style={{ fontSize: 14, marginBottom: 10 }}>
-            획득 점수: <span style={{ color: quitResult.totalScore >= 0 ? 'var(--gold)' : 'var(--red)' }}>
-              {quitResult.totalScore >= 0 ? '+' : ''}{quitResult.totalScore}
-            </span>
-          </div>
-          <div style={{ fontSize: 16, color: 'var(--gold)' }}>
-            보유 점수: {(player.score + quitResult.totalScore).toLocaleString()} P
-          </div>
-        </div>
-
-        <button className="pixel-btn gold" onClick={() => onStageClear(quitResult.totalScore, false)}>
-          메인으로
-        </button>
-      </div>
-    );
-  }
-
   if (gamePhase === 'stageClear') {
     return (
       <StageClearScreen
@@ -521,6 +479,51 @@ export default function GamePlay({
       <div style={{ fontSize: 10, color: '#555', textAlign: 'center', padding: '6px 0' }}>
         1~4 숫자키 | 방향키+Enter/Space | ESC 종료
       </div>
+
+      {/* Quit popup overlay */}
+      {quitResult && (
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+        }}>
+          <div style={{
+            background: '#141450',
+            border: '3px solid #6666aa',
+            padding: '28px 32px',
+            textAlign: 'center',
+            maxWidth: 340,
+            width: '90%',
+          }}>
+            <div style={{
+              fontSize: 18,
+              color: 'var(--gold)',
+              marginBottom: 20,
+              textShadow: '2px 2px 0 #b8860b',
+            }}>
+              게임 종료
+            </div>
+            <div style={{ fontSize: 13, marginBottom: 10, lineHeight: 2.2 }}>
+              진행: {currentDan}단
+            </div>
+            <div style={{ fontSize: 13, marginBottom: 10, lineHeight: 2.2 }}>
+              획득 점수: <span style={{ color: quitResult.totalScore >= 0 ? 'var(--gold)' : 'var(--red)' }}>
+                {quitResult.totalScore >= 0 ? '+' : ''}{quitResult.totalScore}
+              </span>
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--gold)', marginBottom: 24, lineHeight: 2.2 }}>
+              보유 점수: {(player.score + quitResult.totalScore).toLocaleString()} P
+            </div>
+            <button className="pixel-btn gold" onClick={() => onStageClear(quitResult.totalScore, false)}>
+              확인
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
