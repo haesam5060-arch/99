@@ -47,6 +47,7 @@ export default function NicknameScreen({ onStart }) {
             score: result.player.score,
             characters: result.player.characters,
             equippedCharacter: result.player.equipped_character,
+            schoolName: result.player.school_name || '',
           };
           onStart(trimmed, player);
         } else {
@@ -56,7 +57,7 @@ export default function NicknameScreen({ onStart }) {
         // Register
         const result = await registerPlayer(trimmed, password);
         if (result.success) {
-          const player = { score: 0, characters: [0], equippedCharacter: 0 };
+          const player = { score: 0, characters: [0], equippedCharacter: 0, schoolName: '' };
           onStart(trimmed, player);
         } else if (result.error === 'duplicate') {
           setError('이미 존재하는 닉네임이에요!');

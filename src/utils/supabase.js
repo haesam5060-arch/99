@@ -120,15 +120,15 @@ export async function updateOnlineScore(nickname, scoreToAdd) {
 }
 
 // Purchase character (deducts from score, NOT from total_earned)
-export async function purchaseOnlineCharacter(nickname, characterId) {
+export async function purchaseOnlineCharacter(nickname, characterId, price = 1000) {
   if (!supabase) return { success: false };
   const player = await getOnlinePlayer(nickname);
   if (!player) return { success: false };
-  if (player.score < 1000) return { success: false, error: 'not_enough' };
+  if (player.score < price) return { success: false, error: 'not_enough' };
   if (player.characters.includes(characterId)) return { success: false, error: 'already_owned' };
 
   const newChars = [...player.characters, characterId];
-  const newScore = player.score - 1000;
+  const newScore = player.score - price;
   const { data } = await supabase
     .from('players')
     .update({
@@ -155,13 +155,25 @@ export async function equipOnlineCharacter(nickname, characterId) {
   return data;
 }
 
+// Update school name
+export async function updateSchoolName(nickname, schoolName) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('players')
+    .update({ school_name: schoolName, updated_at: new Date().toISOString() })
+    .eq('nickname', nickname)
+    .select()
+    .single();
+  return data;
+}
+
 // Get online rankings (sorted by monthly total_earned, then score)
 export async function getOnlineRankings() {
   if (!supabase) return [];
   const currentMonth = getCurrentMonth();
   const { data } = await supabase
     .from('players')
-    .select('nickname, score, total_earned, earned_month, characters, equipped_character')
+    .select('nickname, score, total_earned, earned_month, characters, equipped_character, school_name')
     .order('total_earned', { ascending: false });
   if (!data) return [];
 
@@ -173,6 +185,7 @@ export async function getOnlineRankings() {
       characters: p.characters,
       characterCount: p.characters.filter((c) => c !== 0).length,
       equippedCharacter: p.equipped_character,
+      schoolName: p.school_name || '',
     }))
     .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
 }

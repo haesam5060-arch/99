@@ -65,13 +65,13 @@ export function updatePlayerScore(nickname, scoreChange) {
   return players[nickname];
 }
 
-export function purchaseCharacter(nickname, characterId) {
+export function purchaseCharacter(nickname, characterId, price = 1000) {
   const players = getAllPlayers();
   if (!players[nickname]) return { success: false };
   if (players[nickname].characters.includes(characterId)) return { success: false, reason: 'already_owned' };
-  if (players[nickname].score < 1000) return { success: false, reason: 'insufficient' };
+  if (players[nickname].score < price) return { success: false, reason: 'insufficient' };
 
-  players[nickname].score -= 1000;
+  players[nickname].score -= price;
   players[nickname].characters.push(characterId);
   players[nickname].equippedCharacter = characterId;
   savePlayers(players);

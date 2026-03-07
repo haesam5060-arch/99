@@ -27,6 +27,7 @@ function App() {
           score: p.score,
           characters: p.characters,
           equippedCharacter: p.equipped_character,
+          schoolName: p.school_name || '',
         });
       }
     } else {
