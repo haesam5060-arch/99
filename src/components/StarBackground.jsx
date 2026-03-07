@@ -28,14 +28,15 @@ export default function StarBackground() {
 
     const createMeteor = () => {
       const startX = Math.random() * canvas.width * 1.2;
-      const speed = 2 + Math.random() * 3;
+      const speed = 4 + Math.random() * 5;
+      const baseSize = 6 + Math.floor(Math.random() * 8);
       return {
         x: startX,
-        y: -10,
+        y: -40,
         speed,
-        angle: 0.6 + Math.random() * 0.4, // 사선 각도
-        length: 8 + Math.floor(Math.random() * 12),
-        size: 2,
+        angle: 0.6 + Math.random() * 0.4,
+        length: 20 + Math.floor(Math.random() * 25),
+        size: baseSize,
         life: 1,
         color: Math.random() > 0.5 ? '#ff8844' : '#ffaa33',
       };
@@ -81,23 +82,43 @@ export default function StarBackground() {
 
         // 꼬리 (픽셀 도트로 표현)
         for (let i = 0; i < m.length; i++) {
-          const tx = Math.floor(m.x - dx * i * 1.5);
-          const ty = Math.floor(m.y - dy * i * 1.5);
-          const tailAlpha = (1 - i / m.length) * 0.9;
+          const progress = i / m.length;
+          const tx = Math.floor(m.x - dx * i * 2.5);
+          const ty = Math.floor(m.y - dy * i * 2.5);
+          const tailAlpha = (1 - progress) * 0.95;
           ctx.globalAlpha = tailAlpha;
 
-          if (i < 2) {
-            // 머리 부분: 밝은 흰색/노란색
+          // 크기가 점점 줄어듦
+          const dotSize = Math.max(2, Math.floor(m.size * (1 - progress * 0.8)));
+
+          if (i < 3) {
+            // 머리: 밝은 흰/노란
             ctx.fillStyle = '#ffffcc';
             ctx.fillRect(tx, ty, m.size, m.size);
-          } else if (i < m.length * 0.4) {
-            // 중간: 주황/빨간
+            // 머리 주변 밝은 픽셀
+            ctx.fillStyle = '#ffeeaa';
+            ctx.fillRect(tx - 2, ty + 2, 2, 2);
+            ctx.fillRect(tx + m.size, ty - 2, 2, 2);
+          } else if (progress < 0.4) {
+            // 중간: 주황/빨간 불꽃
             ctx.fillStyle = m.color;
-            ctx.fillRect(tx, ty, m.size, m.size);
+            ctx.fillRect(tx, ty, dotSize, dotSize);
+            // 불꽃 파편
+            if (i % 2 === 0) {
+              ctx.fillStyle = '#ff6622';
+              const ox = (Math.random() - 0.5) * dotSize * 2;
+              const oy = (Math.random() - 0.5) * dotSize * 2;
+              ctx.fillRect(Math.floor(tx + ox), Math.floor(ty + oy), 2, 2);
+            }
           } else {
-            // 끝부분: 어두운 빨간 + 작게
+            // 끝부분: 어두운 빨간, 작은 파편
             ctx.fillStyle = '#cc3300';
-            ctx.fillRect(tx, ty, 1, 1);
+            ctx.fillRect(tx, ty, dotSize, dotSize);
+            if (i % 3 === 0) {
+              ctx.globalAlpha = tailAlpha * 0.5;
+              ctx.fillStyle = '#881100';
+              ctx.fillRect(tx + 2, ty + 2, Math.max(1, dotSize - 2), Math.max(1, dotSize - 2));
+            }
           }
         }
 
