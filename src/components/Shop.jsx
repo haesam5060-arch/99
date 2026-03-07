@@ -271,7 +271,14 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
             }}
           >
             {char.isSchoolCard ? (
-              <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
+              <div className="school-card-wrapper">
+                <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
+                <div className="school-card-tooltip">
+                  학교 이름을 입력하면<br />
+                  나만의 학교 카드가<br />
+                  캐릭터로 만들어져요!
+                </div>
+              </div>
             ) : (
               <PixelCharacter characterId={char.id} pixelSize={4} />
             )}
