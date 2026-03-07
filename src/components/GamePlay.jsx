@@ -29,6 +29,7 @@ export default function GamePlay({
   const [currentPlanet, setCurrentPlanet] = useState(0);
   const [particles, setParticles] = useState([]);
   const [missile, setMissile] = useState(null); // { progress: 0~1 }
+  const [quitResult, setQuitResult] = useState(null); // { totalScore }
 
   const animRef = useRef(null);
   const containerRef = useRef(null);
@@ -188,7 +189,7 @@ export default function GamePlay({
         e.preventDefault();
         cancelAnimationFrame(animRef.current);
         stopBGM();
-        onStageClear(totalSessionScore, false);
+        setQuitResult({ totalScore: totalSessionScore });
         return;
       }
 
@@ -255,6 +256,48 @@ export default function GamePlay({
     }));
   };
 
+  if (quitResult) {
+    return (
+      <div className="game-container" style={{ justifyContent: 'center' }}>
+        <div style={{
+          fontSize: 22,
+          color: 'var(--gold)',
+          textAlign: 'center',
+          marginBottom: 24,
+          textShadow: '2px 2px 0 #b8860b',
+        }}>
+          게임 종료
+        </div>
+
+        <div style={{
+          background: '#141450',
+          border: '3px solid #333366',
+          padding: 28,
+          textAlign: 'center',
+          marginBottom: 30,
+          width: '100%',
+          lineHeight: 2.4,
+        }}>
+          <div style={{ fontSize: 14, marginBottom: 10 }}>
+            진행: {currentDan}단
+          </div>
+          <div style={{ fontSize: 14, marginBottom: 10 }}>
+            획득 점수: <span style={{ color: quitResult.totalScore >= 0 ? 'var(--gold)' : 'var(--red)' }}>
+              {quitResult.totalScore >= 0 ? '+' : ''}{quitResult.totalScore}
+            </span>
+          </div>
+          <div style={{ fontSize: 16, color: 'var(--gold)' }}>
+            보유 점수: {(player.score + quitResult.totalScore).toLocaleString()} P
+          </div>
+        </div>
+
+        <button className="pixel-btn gold" onClick={() => onStageClear(quitResult.totalScore, false)}>
+          메인으로
+        </button>
+      </div>
+    );
+  }
+
   if (gamePhase === 'stageClear') {
     return (
       <StageClearScreen
@@ -304,7 +347,7 @@ export default function GamePlay({
           onClick={() => {
             cancelAnimationFrame(animRef.current);
             stopBGM();
-            onStageClear(totalSessionScore, false);
+            setQuitResult({ totalScore: totalSessionScore });
           }}
           style={{
             background: 'none',
