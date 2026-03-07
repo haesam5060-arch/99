@@ -19,7 +19,8 @@ export default function MainScreen({ player, nickname, onNavigate }) {
   return (
     <div className="game-container" style={{ justifyContent: 'center' }}>
       <div className="game-title">
-        구구단<br />행성 디펜스
+        <span className="title-main">구구단</span>
+        <span className="title-sub">행성 디펜스</span>
       </div>
 
       <div style={{ margin: '24px 0', textAlign: 'center' }}>
@@ -63,7 +64,7 @@ export default function MainScreen({ player, nickname, onNavigate }) {
           onClick={() => handleNav('nickname')}
           style={{ fontSize: 12 }}
         >
-          닉네임 변경
+          로그아웃
         </button>
       </div>
     </div>

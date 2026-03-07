@@ -78,7 +78,8 @@ export default function NicknameScreen({ onStart }) {
   return (
     <div className="game-container" style={{ justifyContent: 'center' }}>
       <div className="game-title">
-        구구단<br />행성 디펜스
+        <span className="title-main">구구단</span>
+        <span className="title-sub">행성 디펜스</span>
       </div>
       <div className="game-subtitle">
         지구를 지켜라!
