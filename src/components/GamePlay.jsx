@@ -3,6 +3,7 @@ import { generateQuestions, generateChoices } from '../utils/questions';
 import { calculateScore, WRONG_PENALTY, FALL_DURATION } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playSelect, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
 import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
+import { getMissileStyle } from '../data/missileStyles';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
 
@@ -385,26 +386,7 @@ export default function GamePlay({
         </div>
 
         {/* Missile projectile */}
-        {missile && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '10%',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 50,
-              animation: 'missileShoot 0.35s ease-in forwards',
-            }}
-          >
-            <div style={{
-              width: 8,
-              height: 16,
-              background: 'linear-gradient(to top, #ff4400, #ffcc00, #ffffff)',
-              borderRadius: '50% 50% 20% 20%',
-              boxShadow: '0 0 12px #ff6600, 0 0 24px #ff4400',
-            }} />
-          </div>
-        )}
+        {missile && <MissileProjectile characterId={player.equippedCharacter} />}
 
         {/* Explosion particles */}
         {particles.map((p) => (
@@ -447,20 +429,25 @@ export default function GamePlay({
           flexDirection: 'column',
           alignItems: 'center',
         }}>
-          {player.equippedCharacter === SCHOOL_CARD_ID ? (
-            <SchoolCardCharacter
-              schoolName={player.schoolName || '학교'}
-              frame={charFrame}
-              pixelSize={4}
-              mode="card"
-            />
-          ) : (
-            <PixelCharacter
-              characterId={player.equippedCharacter}
-              frame={charFrame}
-              pixelSize={4}
-            />
-          )}
+          <div style={{
+            transition: 'transform 0.15s ease-out',
+            transform: charFrame === 'attack' ? 'scale(1.3) translateY(-8px)' : 'scale(1)',
+          }}>
+            {player.equippedCharacter === SCHOOL_CARD_ID ? (
+              <SchoolCardCharacter
+                schoolName={player.schoolName || '학교'}
+                frame={charFrame}
+                pixelSize={4}
+                mode="card"
+              />
+            ) : (
+              <PixelCharacter
+                characterId={player.equippedCharacter}
+                frame={charFrame}
+                pixelSize={4}
+              />
+            )}
+          </div>
           <EarthCanvas />
         </div>
       </div>
@@ -667,6 +654,86 @@ function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onN
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Missile projectile with character-specific style
+function MissileProjectile({ characterId }) {
+  const ms = getMissileStyle(characterId);
+  const isPremium = ms.premium;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '10%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 50,
+        animation: 'missileShoot 0.35s ease-in forwards',
+      }}
+    >
+      {/* 꼬리 파티클들 */}
+      {Array.from({ length: ms.trail }, (_, i) => (
+        <div
+          key={i}
+          style={{
+            position: 'absolute',
+            bottom: -(i + 1) * (isPremium ? 8 : 6),
+            left: '50%',
+            transform: `translateX(${(Math.random() - 0.5) * (isPremium ? 16 : 8)}px)`,
+            width: Math.max(2, ms.size - i * 3),
+            height: Math.max(2, ms.size - i * 3),
+            background: i < ms.trail / 2 ? ms.mid : ms.tail,
+            opacity: 1 - (i / ms.trail) * 0.8,
+            imageRendering: 'pixelated',
+          }}
+        />
+      ))}
+      {/* 메인 미사일 헤드 */}
+      <div style={{
+        width: ms.size,
+        height: ms.size * (isPremium ? 1.8 : 1.5),
+        background: `linear-gradient(to top, ${ms.tail}, ${ms.mid}, ${ms.head})`,
+        boxShadow: isPremium
+          ? `0 0 ${ms.size}px ${ms.mid}, 0 0 ${ms.size * 2}px ${ms.tail}`
+          : `0 0 ${ms.size / 2}px ${ms.mid}`,
+        imageRendering: 'pixelated',
+      }} />
+      {/* 프리미엄: 양쪽 스파크 */}
+      {isPremium && (
+        <>
+          <div style={{
+            position: 'absolute',
+            top: 2,
+            left: -6,
+            width: 4,
+            height: 4,
+            background: ms.head,
+            opacity: 0.8,
+          }} />
+          <div style={{
+            position: 'absolute',
+            top: 2,
+            right: -6,
+            width: 4,
+            height: 4,
+            background: ms.head,
+            opacity: 0.8,
+          }} />
+          <div style={{
+            position: 'absolute',
+            top: -4,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 6,
+            height: 6,
+            background: '#ffffff',
+            opacity: 0.9,
+          }} />
+        </>
+      )}
     </div>
   );
 }
