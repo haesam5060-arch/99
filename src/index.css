@@ -164,39 +164,39 @@ body {
 
 .game-title .title-main {
   display: block;
-  font-size: 42px;
-  background: linear-gradient(180deg, #fff 0%, #ffd700 40%, #ff8c00 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.6)) drop-shadow(2px 3px 0 #b8860b);
-  letter-spacing: 6px;
-  animation: titlePulse 3s ease-in-out infinite;
-  position: relative;
+  font-size: 36px;
+  color: #ffd700;
+  text-shadow:
+    2px 2px 0 #b8860b,
+    4px 4px 0 #8b6508,
+    6px 6px 0 #5a4200,
+    -1px -1px 0 #ffe566;
+  letter-spacing: 4px;
+  animation: titleColorCycle 4s steps(6) infinite;
 }
 
 .game-title .title-sub {
   display: block;
-  font-size: 22px;
-  margin-top: 4px;
-  background: linear-gradient(90deg, #7eb8ff, #a0d4ff, #c8e8ff, #a0d4ff, #7eb8ff);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: shimmer 3s linear infinite;
-  filter: drop-shadow(0 0 6px rgba(100, 170, 255, 0.5)) drop-shadow(1px 2px 0 #2255aa);
-  letter-spacing: 8px;
+  font-size: 20px;
+  margin-top: 8px;
+  color: #66ccff;
+  text-shadow:
+    2px 2px 0 #1a5c8a,
+    4px 4px 0 #0d3050,
+    -1px -1px 0 #aaeeff;
+  letter-spacing: 3px;
+  animation: titleBlink 2s steps(1) infinite;
 }
 
-@keyframes titlePulse {
-  0%, 100% { filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.6)) drop-shadow(2px 3px 0 #b8860b); }
-  50% { filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.9)) drop-shadow(0 0 40px rgba(255, 140, 0, 0.4)) drop-shadow(2px 3px 0 #b8860b); }
+@keyframes titleColorCycle {
+  0%, 100% { color: #ffd700; text-shadow: 2px 2px 0 #b8860b, 4px 4px 0 #8b6508, 6px 6px 0 #5a4200, -1px -1px 0 #ffe566; }
+  33% { color: #ffaa00; text-shadow: 2px 2px 0 #cc7700, 4px 4px 0 #994400, 6px 6px 0 #662200, -1px -1px 0 #ffcc44; }
+  66% { color: #ffee44; text-shadow: 2px 2px 0 #ccaa00, 4px 4px 0 #997700, 6px 6px 0 #664400, -1px -1px 0 #ffffaa; }
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+@keyframes titleBlink {
+  0%, 100% { color: #66ccff; }
+  50% { color: #99ddff; }
 }
 
 .game-subtitle {
@@ -276,8 +276,8 @@ body {
 }
 
 @media (max-width: 480px) {
-  .game-title .title-main { font-size: 28px; letter-spacing: 4px; }
-  .game-title .title-sub { font-size: 16px; letter-spacing: 4px; }
+  .game-title .title-main { font-size: 24px; letter-spacing: 2px; text-shadow: 2px 2px 0 #b8860b, 4px 4px 0 #8b6508, -1px -1px 0 #ffe566; }
+  .game-title .title-sub { font-size: 14px; letter-spacing: 2px; }
   .game-subtitle { font-size: 11px; }
   .pixel-btn { font-size: 13px; padding: 14px 24px; min-width: 200px; }
   .choices-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
