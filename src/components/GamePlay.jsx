@@ -8,6 +8,7 @@ import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
 
 const SCHOOL_CARD_ID = 13;
+const GOLDEN_WORM_ID = 24;
 
 export default function GamePlay({
   mode,
@@ -34,6 +35,8 @@ export default function GamePlay({
   const [particles, setParticles] = useState([]);
   const [missile, setMissile] = useState(null); // { progress: 0~1 }
   const [quitResult, setQuitResult] = useState(null); // { totalScore }
+  const [totalWrongCount, setTotalWrongCount] = useState(0); // track total wrong across all dans
+  const [perfectClear, setPerfectClear] = useState(null); // { bonus } when 2-9단 perfect
 
   const animRef = useRef(null);
   const containerRef = useRef(null);
@@ -86,6 +89,8 @@ export default function GamePlay({
     return () => cancelAnimationFrame(animRef.current);
   }, [gamePhase, startTime, questionIndex]);
 
+  const isGoldenWorm = player.equippedCharacter === GOLDEN_WORM_ID;
+
   const handleTimeout = () => {
     cancelAnimationFrame(animRef.current);
     setGamePhase('feedback');
@@ -93,10 +98,13 @@ export default function GamePlay({
     setShake(true);
     setTimeout(() => setShake(false), 400);
 
-    const penalty = WRONG_PENALTY;
-    setStageScore((s) => s + penalty);
-    setTotalSessionScore((s) => s + penalty);
-    setFeedback({ type: 'wrong', score: penalty, text: '시간 초과!' });
+    const penalty = isGoldenWorm ? 0 : WRONG_PENALTY;
+    if (penalty) {
+      setStageScore((s) => s + penalty);
+      setTotalSessionScore((s) => s + penalty);
+    }
+    setTotalWrongCount((c) => c + 1);
+    setFeedback({ type: 'wrong', score: penalty, text: isGoldenWorm ? '시간 초과! (보호)' : '시간 초과!' });
     setWrongQuestions((prev) => {
       if (prev.find((q) => q.a === currentQuestion.a && q.b === currentQuestion.b)) return prev;
       return [...prev, currentQuestion];
@@ -138,10 +146,13 @@ export default function GamePlay({
       setShake(true);
       setTimeout(() => setShake(false), 400);
 
-      const penalty = WRONG_PENALTY;
-      setStageScore((s) => s + penalty);
-      setTotalSessionScore((s) => s + penalty);
-      setFeedback({ type: 'wrong', score: penalty, text: `${penalty}` });
+      const penalty = isGoldenWorm ? 0 : WRONG_PENALTY;
+      if (penalty) {
+        setStageScore((s) => s + penalty);
+        setTotalSessionScore((s) => s + penalty);
+      }
+      setTotalWrongCount((c) => c + 1);
+      setFeedback({ type: 'wrong', score: penalty, text: isGoldenWorm ? '보호!' : `${penalty}` });
       setWrongQuestions((prev) => {
         if (prev.find((q) => q.a === currentQuestion.a && q.b === currentQuestion.b)) return prev;
         return [...prev, currentQuestion];
@@ -260,6 +271,24 @@ export default function GamePlay({
     }));
   };
 
+  // Perfect clear popup (2-9단 all correct)
+  if (perfectClear) {
+    return (
+      <PerfectClearScreen
+        bonus={perfectClear.bonus}
+        totalSessionScore={totalSessionScore}
+        playerScore={player.score}
+        onContinue={() => {
+          setPerfectClear(null);
+          setCurrentDan(10);
+          startBGM('game');
+          startDan(10);
+        }}
+        onQuit={() => onStageClear(totalSessionScore, false)}
+      />
+    );
+  }
+
   if (gamePhase === 'stageClear') {
     return (
       <StageClearScreen
@@ -271,9 +300,17 @@ export default function GamePlay({
           if (currentDan >= 20) {
             onStageClear(totalSessionScore, true);
           } else {
-            setCurrentDan(currentDan + 1);
+            const nextDan = currentDan + 1;
+            // Check perfect clear at end of 9단
+            if (currentDan === 9 && totalWrongCount === 0) {
+              const bonus = 10000;
+              setTotalSessionScore((s) => s + bonus);
+              setPerfectClear({ bonus });
+              return;
+            }
+            setCurrentDan(nextDan);
             startBGM('game');
-            startDan(currentDan + 1);
+            startDan(nextDan);
           }
         }}
         onQuit={() => onStageClear(totalSessionScore, false)}
@@ -653,6 +690,88 @@ function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onN
             </button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Perfect Clear Screen - 2~9단 올클리어 축하
+function PerfectClearScreen({ bonus, totalSessionScore, playerScore, onContinue, onQuit }) {
+  useEffect(() => {
+    playGameComplete();
+  }, []);
+
+  return (
+    <div className="game-container perfect-clear-bg" style={{ justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+      {/* Sparkle particles */}
+      {Array.from({ length: 30 }, (_, i) => (
+        <div
+          key={i}
+          className="perfect-sparkle"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            animationDelay: `${Math.random() * 2}s`,
+            animationDuration: `${1 + Math.random() * 2}s`,
+            width: `${4 + Math.random() * 8}px`,
+            height: `${4 + Math.random() * 8}px`,
+            background: ['#ffd700', '#ffffff', '#ff6600', '#ffee88', '#ff4444'][Math.floor(Math.random() * 5)],
+          }}
+        />
+      ))}
+
+      <div className="perfect-title">
+        PERFECT!
+      </div>
+      <div style={{
+        fontSize: 13,
+        color: '#ffee88',
+        marginBottom: 8,
+        textShadow: '2px 2px 0 #b8860b',
+        animation: 'perfectPulse 1s ease-in-out infinite',
+      }}>
+        2단~9단 올클리어!
+      </div>
+      <div style={{
+        fontSize: 10,
+        color: '#aaa',
+        marginBottom: 24,
+      }}>
+        한 문제도 틀리지 않았어요!
+      </div>
+
+      <div style={{
+        background: 'rgba(20, 20, 80, 0.9)',
+        border: '4px solid #ffd700',
+        padding: 28,
+        textAlign: 'center',
+        marginBottom: 30,
+        width: '100%',
+        lineHeight: 2.4,
+        boxShadow: '0 0 30px rgba(255, 215, 0, 0.4), inset 0 0 20px rgba(255, 215, 0, 0.1)',
+      }}>
+        <div style={{ fontSize: 16, marginBottom: 10 }}>
+          보너스: <span style={{ color: '#ffd700', fontSize: 20 }}>
+            +{bonus.toLocaleString()}P
+          </span>
+        </div>
+        <div style={{ fontSize: 14, marginBottom: 10 }}>
+          총 획득: <span style={{ color: 'var(--gold)' }}>
+            +{totalSessionScore.toLocaleString()}
+          </span>
+        </div>
+        <div style={{ fontSize: 16, color: 'var(--gold)' }}>
+          보유 점수: {(playerScore + totalSessionScore).toLocaleString()} P
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <button className="pixel-btn gold" onClick={onContinue}>
+          계속하기 (10단)
+        </button>
+        <button className="pixel-btn red" onClick={onQuit}>
+          그만하기
+        </button>
       </div>
     </div>
   );

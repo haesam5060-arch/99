@@ -10,6 +10,34 @@ import { containsProfanity } from '../utils/profanityFilter';
 const SCHOOL_CARD_ID = 13;
 const SCHOOL_CARD_PRICE = 5000;
 
+const CHARACTER_TOOLTIPS = {
+  0: '기본 캐릭터\n핑크 에너지볼 공격',
+  1: '돌멩이 공격',
+  2: '뿔 돌진 공격',
+  3: '화염구 공격',
+  4: '당근 미사일 공격',
+  5: '초록 화염 공격',
+  6: '독침 공격',
+  7: '말발굽 충격파 공격',
+  8: '솜뭉치 공격',
+  9: '바나나 공격',
+  10: '알 투척 공격',
+  11: '뼈다귀 공격',
+  12: '핑크 에너지 공격',
+  13: '학교 이름을 입력하면\n나만의 학교 카드가\n캐릭터로 만들어져요!',
+  14: '로켓 발사 공격',
+  15: '레이저 빔 공격',
+  16: '수리검 투척 공격',
+  17: '성스러운 검기 공격',
+  18: '마법 오브 공격',
+  19: '대포알 발사 공격',
+  20: '에너지 펀치 공격',
+  21: '참치캔 투척 공격',
+  22: '아이스볼 공격',
+  23: '거대 화염구 공격',
+  24: '거대 황금 에너지 폭발 공격\n틀려도 점수가 안 깎여요!',
+};
+
 function getPrice(id) {
   if (id === 0) return 0;
   if (id === 24) return 10000;
@@ -271,18 +299,18 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
               transition: 'transform 0.1s',
             }}
           >
-            {char.isSchoolCard ? (
-              <div className="school-card-wrapper">
+            <div className="char-tooltip-wrapper">
+              {char.isSchoolCard ? (
                 <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
-                <div className="school-card-tooltip">
-                  학교 이름을 입력하면<br />
-                  나만의 학교 카드가<br />
-                  캐릭터로 만들어져요!
-                </div>
+              ) : (
+                <PixelCharacter characterId={char.id} pixelSize={4} />
+              )}
+              <div className="char-tooltip">
+                {(CHARACTER_TOOLTIPS[char.id] || '').split('\n').map((line, i) => (
+                  <span key={i}>{line}{i < (CHARACTER_TOOLTIPS[char.id] || '').split('\n').length - 1 && <br />}</span>
+                ))}
               </div>
-            ) : (
-              <PixelCharacter characterId={char.id} pixelSize={4} />
-            )}
+            </div>
             <div style={{ fontSize: 11, marginTop: 6 }}>
               {char.isSchoolCard ? (player.schoolName ? `${player.schoolName}초` : '학교 카드') : char.name}
             </div>

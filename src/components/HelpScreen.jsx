@@ -51,6 +51,14 @@ const sections = [
       '보유 점수 = 획득 점수 - 소비 점수',
     ],
   },
+  {
+    title: '히든 보상',
+    items: [
+      '2단~9단을 한 문제도 틀리지 않고 클리어하면',
+      '보너스 10,000P가 지급됩니다!',
+      '도전해보세요!',
+    ],
+  },
 ];
 
 export default function HelpScreen({ onBack }) {
