@@ -9,7 +9,7 @@ const C = {
 // Color palettes for each character
 // All characters: side-view facing right, eyes looking at viewer
 export const CHARACTER_PALETTES = {
-  0: { name: '지렁이', colors: { 1: '#ffaa33', 2: '#ff8800', 3: '#ffcc66', 4: '#222222', 5: '#ffffff', 6: '#ff6600', 7: '#ff5588' } },
+  0: { name: '지렁이', colors: { 1: '#ff88cc', 2: '#ff55aa', 3: '#ffaadd', 4: '#222222', 5: '#ffffff', 6: '#ff3399', 7: '#ff5588' } },
   1: { name: '쥐', colors: { 1: '#c0c0c0', 2: '#909090', 3: '#707070', 4: '#222222', 5: '#ffffff', 6: '#ffaaaa', 7: '#e0e0e0' } },
   2: { name: '소', colors: { 1: '#8B6914', 2: '#6B4914', 3: '#ffffff', 4: '#222222', 5: '#ffaaaa', 6: '#d4a574', 7: '#aaa' } },
   3: { name: '호랑이', colors: { 1: '#ff9900', 2: '#cc7700', 3: '#333333', 4: '#222222', 5: '#ffffff', 6: '#ffcc66' } },
