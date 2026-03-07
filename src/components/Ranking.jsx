@@ -105,7 +105,7 @@ export default function Ranking({ nickname, onBack }) {
                 gap: 6,
               }}>
                 {entry.equippedCharacter === SCHOOL_CARD_ID ? (
-                  <SchoolCardCharacter schoolName={entry.schoolName || '학교'} pixelSize={2} mode="icon" />
+                  <SchoolCardCharacter schoolName={entry.schoolName || '학교'} pixelSize={2} mode="card" />
                 ) : (
                   <PixelCharacter characterId={entry.equippedCharacter || 0} pixelSize={2} />
                 )}
@@ -187,7 +187,7 @@ export default function Ranking({ nickname, onBack }) {
               {(selectedPlayer.characters || [0]).map((charId) => (
                 <div key={charId} style={{ textAlign: 'center' }}>
                   {charId === SCHOOL_CARD_ID ? (
-                    <SchoolCardCharacter schoolName={selectedPlayer.schoolName || '학교'} pixelSize={3} mode="icon" />
+                    <SchoolCardCharacter schoolName={selectedPlayer.schoolName || '학교'} pixelSize={3} mode="card" />
                   ) : (
                     <PixelCharacter characterId={charId} pixelSize={3} />
                   )}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { getPlayer, createPlayer } from '../utils/storage';
 import { isOnline, checkNicknameExists, registerPlayer, loginPlayer } from '../utils/supabase';
 import { playClick } from '../utils/sound';
+import { containsProfanity } from '../utils/profanityFilter';
 
 export default function NicknameScreen({ onStart }) {
   const [nickname, setNickname] = useState('');
@@ -16,6 +17,7 @@ export default function NicknameScreen({ onStart }) {
     if (!trimmed) { setError('닉네임을 입력해주세요!'); return; }
     if (trimmed.length > 8) { setError('8자 이하로 입력해주세요!'); return; }
     if (trimmed.includes(' ')) { setError('공백은 사용할 수 없어요!'); return; }
+    if (containsProfanity(trimmed)) { setError('사용할 수 없는 닉네임이에요!'); return; }
 
     if (online && !/^\d{4}$/.test(password)) {
       setError('비밀번호는 숫자 4자리를 입력해주세요!');

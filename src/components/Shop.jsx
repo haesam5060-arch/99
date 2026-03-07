@@ -5,6 +5,7 @@ import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolNa
 import { playClick, playPurchase } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
+import { containsProfanity } from '../utils/profanityFilter';
 
 const SCHOOL_CARD_ID = 13;
 const SCHOOL_CARD_PRICE = 5000;
@@ -13,6 +14,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
   const [confirm, setConfirm] = useState(null);
   const [loading, setLoading] = useState(false);
   const [schoolInput, setSchoolInput] = useState('');
+  const [schoolError, setSchoolError] = useState('');
 
   const handleBuy = (id) => {
     playClick();
@@ -28,7 +30,12 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     const price = isSchoolCard ? SCHOOL_CARD_PRICE : 1000;
 
     if (isSchoolCard && schoolInput.trim().length < 1) return;
+    if (isSchoolCard && containsProfanity(schoolInput.trim())) {
+      setSchoolError('사용할 수 없는 이름이에요!');
+      return;
+    }
 
+    setSchoolError('');
     setLoading(true);
 
     if (isOnline()) {
@@ -153,6 +160,9 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                     marginBottom: 12,
                   }}
                 />
+                {schoolError && (
+                  <div style={{ fontSize: 10, color: '#ff4444', marginBottom: 8 }}>{schoolError}</div>
+                )}
                 <div style={{ fontSize: 9, color: '#888', marginBottom: 16, lineHeight: 1.8 }}>
                   {SCHOOL_CARD_PRICE.toLocaleString()}점을 사용합니다
                 </div>

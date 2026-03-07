@@ -452,7 +452,7 @@ export default function GamePlay({
               schoolName={player.schoolName || '학교'}
               frame={charFrame}
               pixelSize={4}
-              mode="icon"
+              mode="card"
             />
           ) : (
             <PixelCharacter

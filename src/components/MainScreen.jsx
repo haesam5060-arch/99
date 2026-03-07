@@ -27,7 +27,7 @@ export default function MainScreen({ player, nickname, onNavigate }) {
           {nickname}
         </div>
         {isSchoolCard ? (
-          <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={6} mode="icon" />
+          <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={6} mode="card" />
         ) : (
           <PixelCharacter characterId={player.equippedCharacter} pixelSize={6} />
         )}
