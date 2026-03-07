@@ -170,11 +170,11 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                 className="pixel-btn gold"
                 onClick={confirmBuy}
                 disabled={loading || (confirm === SCHOOL_CARD_ID && schoolInput.trim().length < 1)}
-                style={{ opacity: loading ? 0.6 : 1 }}
+                style={{ flex: 1, opacity: loading ? 0.6 : 1 }}
               >
                 {loading ? '...' : '구매'}
               </button>
-              <button className="pixel-btn red" onClick={() => setConfirm(null)}>
+              <button className="pixel-btn red" onClick={() => setConfirm(null)} style={{ flex: 1 }}>
                 취소
               </button>
             </div>
