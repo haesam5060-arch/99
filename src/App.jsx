@@ -125,6 +125,20 @@ function App() {
       {screen === 'help' && (
         <HelpScreen onBack={() => setScreen('main')} />
       )}
+
+      <div style={{
+        position: 'fixed',
+        bottom: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: 9,
+        color: 'rgba(255,255,255,0.15)',
+        fontFamily: "'Press Start 2P', monospace",
+        pointerEvents: 'none',
+        zIndex: 9999,
+      }}>
+        Made by HR's Dad
+      </div>
     </>
   );
 }
