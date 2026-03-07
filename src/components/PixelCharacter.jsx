@@ -5,30 +5,31 @@ import { renderSprite } from '../utils/pixelRenderer';
 export default function PixelCharacter({ characterId = 0, frame = 'idle', pixelSize = 4 }) {
   const canvasRef = useRef(null);
 
+  const sprite = CHARACTER_SPRITES[characterId]?.[frame];
+  const palette = CHARACTER_PALETTES[characterId];
+  const spriteSize = palette?.spriteSize || 16;
+  // Scale so 32x32 sprites render at same visual size as 16x16
+  const actualPixelSize = spriteSize === 32 ? Math.max(1, Math.floor(pixelSize / 2)) : pixelSize;
+  const canvasSize = spriteSize * actualPixelSize;
+
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !sprite || !palette?.colors) return;
     const ctx = canvas.getContext('2d');
-    const sprite = CHARACTER_SPRITES[characterId]?.[frame];
-    const palette = CHARACTER_PALETTES[characterId]?.colors;
-    if (!sprite || !palette) return;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    renderSprite(ctx, sprite, palette.colors, 0, 0, actualPixelSize);
+  }, [characterId, frame, pixelSize, sprite, palette, canvasSize, actualPixelSize]);
 
-    const size = 16 * pixelSize;
-    canvas.width = size;
-    canvas.height = size;
-    ctx.clearRect(0, 0, size, size);
-    renderSprite(ctx, sprite, palette, 0, 0, pixelSize);
-  }, [characterId, frame, pixelSize]);
-
-  const size = 16 * pixelSize;
   return (
     <canvas
       ref={canvasRef}
-      width={size}
-      height={size}
+      width={canvasSize}
+      height={canvasSize}
       style={{
-        width: size,
-        height: size,
+        width: canvasSize,
+        height: canvasSize,
         imageRendering: 'pixelated',
       }}
     />

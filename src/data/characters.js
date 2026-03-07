@@ -1,3 +1,5 @@
+import { PREMIUM_PALETTES, PREMIUM_SPRITES } from './premiumCharacters';
+
 // 16x16 pixel art characters (0 = transparent, other values = color index)
 // Each character has idle and attack frames
 
@@ -23,12 +25,14 @@ export const CHARACTER_PALETTES = {
   11: { name: '개', colors: { 1: '#c8a070', 2: '#a07848', 3: '#6B4914', 4: '#222222', 5: '#ffffff', 6: '#e0c0a0' } },
   12: { name: '돼지', colors: { 1: '#ffaacc', 2: '#ff88aa', 3: '#ff6699', 4: '#222222', 5: '#ffffff', 6: '#ffccdd' } },
   13: { name: '학교 이름 카드!', colors: { 1: '#4488ff', 2: '#2266dd', 3: '#ffffff', 4: '#222222', 5: '#ffd700', 6: '#66aaff' }, isSchoolCard: true },
+  ...PREMIUM_PALETTES,
 };
 
 // _ = transparent, numbers = color indices from palette
 const _ = 0;
 
 export const CHARACTER_SPRITES = {
+  ...PREMIUM_SPRITES,
   // 지렁이 (Worm) - side view, cute orange worm curving right, big eye
   0: {
     idle: [
@@ -682,8 +686,12 @@ export const EARTH_SPRITE = {
   ],
 };
 
-export const CHARACTER_LIST = Object.keys(CHARACTER_PALETTES).map((id) => ({
-  id: Number(id),
-  name: CHARACTER_PALETTES[id].name,
-  price: id === '0' ? 0 : 1000,
-}));
+export const CHARACTER_LIST = Object.keys(CHARACTER_PALETTES).map((id) => {
+  const numId = Number(id);
+  const data = CHARACTER_PALETTES[numId];
+  let price = 1000;
+  if (numId === 0) price = 0;
+  else if (numId === 13) price = 5000;
+  else if (data.premium) price = 3000;
+  return { id: numId, name: data.name, price };
+});

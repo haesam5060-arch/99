@@ -13,6 +13,8 @@ const SCHOOL_CARD_PRICE = 5000;
 function getPrice(id) {
   if (id === 0) return 0;
   if (id === SCHOOL_CARD_ID) return SCHOOL_CARD_PRICE;
+  const data = CHARACTER_PALETTES[id];
+  if (data?.premium) return 3000;
   return 1000;
 }
 
