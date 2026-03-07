@@ -129,8 +129,8 @@ export default function NicknameScreen({ onStart }) {
                 border: '3px solid #6666aa',
                 color: 'white',
                 textAlign: 'center',
-                width: '60%',
-                maxWidth: 200,
+                width: '85%',
+                maxWidth: 360,
                 outline: 'none',
                 letterSpacing: '8px',
               }}
