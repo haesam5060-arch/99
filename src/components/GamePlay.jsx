@@ -15,7 +15,13 @@ export default function GamePlay({
   player,
   onStageClear,
 }) {
-  const [currentDan, setCurrentDan] = useState(2);
+  // Custom mode: { type: 'custom', dans: [2, 5, 9] }
+  const isCustomMode = typeof mode === 'object' && mode?.type === 'custom';
+  const customDans = isCustomMode ? mode.dans : null;
+  const questionMode = isCustomMode ? 'sequential' : mode;
+  const [customDanIndex, setCustomDanIndex] = useState(0);
+
+  const [currentDan, setCurrentDan] = useState(isCustomMode ? customDans[0] : 2);
   const [questions, setQuestions] = useState([]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [choices, setChoices] = useState([]);
@@ -45,7 +51,7 @@ export default function GamePlay({
 
   // Start a new dan
   const startDan = useCallback((dan, retryList = null) => {
-    const qs = retryList || generateQuestions(dan, mode);
+    const qs = retryList || generateQuestions(dan, questionMode);
     setQuestions(qs);
     setQuestionIndex(0);
     setStageScore(0);
@@ -60,12 +66,12 @@ export default function GamePlay({
       setStartTime(Date.now());
       setPlanetY(0);
     }, 500);
-  }, [mode]);
+  }, [questionMode]);
 
   // Initialize
   useEffect(() => {
     startBGM('game');
-    startDan(2);
+    startDan(isCustomMode ? customDans[0] : 2);
     return () => { stopBGM(); cancelAnimationFrame(animRef.current); };
   }, [startDan]);
 
@@ -290,6 +296,11 @@ export default function GamePlay({
   }
 
   if (gamePhase === 'stageClear') {
+    // Determine if this is the last dan
+    const isLastDan = isCustomMode
+      ? customDanIndex >= customDans.length - 1
+      : currentDan >= 20;
+
     return (
       <StageClearScreen
         dan={currentDan}
@@ -297,8 +308,15 @@ export default function GamePlay({
         totalSessionScore={totalSessionScore}
         playerScore={player.score}
         onNext={() => {
-          if (currentDan >= 20) {
+          if (isLastDan) {
             onStageClear(totalSessionScore, true);
+          } else if (isCustomMode) {
+            const nextIdx = customDanIndex + 1;
+            const nextDan = customDans[nextIdx];
+            setCustomDanIndex(nextIdx);
+            setCurrentDan(nextDan);
+            startBGM('game');
+            startDan(nextDan);
           } else {
             const nextDan = currentDan + 1;
             // Check perfect clear at end of 9단
@@ -314,7 +332,8 @@ export default function GamePlay({
           }
         }}
         onQuit={() => onStageClear(totalSessionScore, false)}
-        isLastDan={currentDan >= 20}
+        isLastDan={isLastDan}
+        nextDanLabel={isCustomMode && !isLastDan ? `${customDans[customDanIndex + 1]}단` : null}
       />
     );
   }
@@ -335,7 +354,7 @@ export default function GamePlay({
 
       {/* HUD */}
       <div className="hud">
-        <span>{currentDan}단 {isRetryRound ? '(재도전)' : ''}</span>
+        <span>{currentDan}단 {isRetryRound ? '(재도전)' : isCustomMode ? `(${customDanIndex + 1}/${customDans.length})` : ''}</span>
         <span>
           {questionIndex + 1} / {questions.length}
         </span>
@@ -630,7 +649,7 @@ function EarthCanvas() {
 }
 
 // Stage Clear sub-screen
-function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onNext, onQuit, isLastDan }) {
+function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onNext, onQuit, isLastDan, nextDanLabel }) {
   useEffect(() => {
     if (isLastDan) {
       playGameComplete();
@@ -683,7 +702,7 @@ function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onN
         ) : (
           <>
             <button className="pixel-btn gold" onClick={onNext}>
-              다음 단으로 ({dan + 1}단)
+              다음 단으로 ({nextDanLabel || `${dan + 1}단`})
             </button>
             <button className="pixel-btn red" onClick={onQuit}>
               그만하기
