@@ -13,7 +13,7 @@ export function calculateScore(elapsedSeconds) {
   return 0; // should not happen since timeout is at 10s
 }
 
-export const WRONG_PENALTY = -10;
-export const TIMEOUT_PENALTY = -10;
+export const WRONG_PENALTY = -100;
+export const TIMEOUT_PENALTY = -100;
 export const CHARACTER_PRICE = 1000;
 export const FALL_DURATION = 10; // seconds
