@@ -190,6 +190,8 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [charStates, setCharStates] = useState([]);
   const [roomSize, setRoomSize] = useState({ w: 600, h: 400 });
   const [doorOpen, setDoorOpen] = useState(false);
+  const [ballPositions, setBallPositions] = useState({}); // { layoutIdx: { x, y } } 가상좌표
+  const ballPhysicsRef = useRef({}); // { layoutIdx: { x, y, vx, vy } } 가상좌표
   const roomRef = useRef(null);
   const animFrameRef = useRef(null);
 
@@ -438,12 +440,89 @@ export default function MyRoom({ player, nickname, onBack }) {
         }
         return ch;
       }));
+      // ── 축구공 물리 ──
+      const BALL_FRICTION = 0.97;
+      const BALL_MIN_SPEED = 0.05;
+      const KICK_FORCE = 3.5;
+      const BALL_RADIUS = 15; // 충돌 감지 범위 (px)
+
+      // 축구공 초기화
+      layout.forEach((item, idx) => {
+        if (item.id === 'soccerBall' && !ballPhysicsRef.current[idx]) {
+          ballPhysicsRef.current[idx] = { x: item.x, y: item.y, vx: 0, vy: 0 };
+        }
+      });
+
+      // 공 물리 업데이트 & 캐릭터 충돌
+      let ballChanged = false;
+      Object.keys(ballPhysicsRef.current).forEach(idxStr => {
+        const idx = Number(idxStr);
+        if (!layout[idx] || layout[idx].id !== 'soccerBall') {
+          delete ballPhysicsRef.current[idx];
+          return;
+        }
+        const bp = ballPhysicsRef.current[idx];
+        const f = FURNITURE_DEFS[layout[idx].id];
+
+        // 캐릭터 충돌 감지 (px → 가상좌표 변환)
+        charStates.forEach(ch => {
+          if (ch.hidden || ch.action === 'sleep') return;
+          const chVx = (ch.x / roomSize.w) * 300;
+          const chVy = (ch.y / roomSize.h) * 200;
+          const bCenterX = bp.x + (f.w * SCALE) / 2;
+          const bCenterY = bp.y + (f.h * SCALE) / 2;
+          const dx = bCenterX - chVx;
+          const dy = bCenterY - chVy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < BALL_RADIUS && dist > 0) {
+            // 캐릭터 이동 방향으로 차기
+            const nx = dx / dist;
+            const ny = dy / dist;
+            bp.vx = nx * KICK_FORCE + (Math.random() - 0.5) * 1.0;
+            bp.vy = ny * KICK_FORCE + (Math.random() - 0.5) * 1.0;
+            ballChanged = true;
+          }
+        });
+
+        // 속도 적용
+        if (Math.abs(bp.vx) > BALL_MIN_SPEED || Math.abs(bp.vy) > BALL_MIN_SPEED) {
+          bp.x += bp.vx;
+          bp.y += bp.vy;
+          bp.vx *= BALL_FRICTION;
+          bp.vy *= BALL_FRICTION;
+
+          // 벽 반사
+          const maxX = 300 - f.w * SCALE;
+          const maxY = 200 - f.h * SCALE;
+          const minY = 60; // 바닥 영역만
+          if (bp.x < 0) { bp.x = 0; bp.vx = Math.abs(bp.vx) * 0.7; }
+          if (bp.x > maxX) { bp.x = maxX; bp.vx = -Math.abs(bp.vx) * 0.7; }
+          if (bp.y < minY) { bp.y = minY; bp.vy = Math.abs(bp.vy) * 0.7; }
+          if (bp.y > maxY) { bp.y = maxY; bp.vy = -Math.abs(bp.vy) * 0.7; }
+
+          // 멈춤 처리
+          if (Math.abs(bp.vx) < BALL_MIN_SPEED) bp.vx = 0;
+          if (Math.abs(bp.vy) < BALL_MIN_SPEED) bp.vy = 0;
+
+          ballChanged = true;
+        }
+      });
+
+      if (ballChanged) {
+        const newPositions = {};
+        Object.entries(ballPhysicsRef.current).forEach(([idx, bp]) => {
+          newPositions[idx] = { x: bp.x, y: bp.y };
+        });
+        setBallPositions({ ...newPositions });
+      }
+
       animFrameRef.current = requestAnimationFrame(tick);
     };
 
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [editMode, findInteraction, roomSize]);
+  }, [editMode, findInteraction, roomSize, layout, charStates]);
 
   const handleRemoveFurniture = (idx) => {
     playClick();
@@ -566,6 +645,10 @@ export default function MyRoom({ player, nickname, onBack }) {
         {layout.map((item, idx) => {
           const f = FURNITURE_DEFS[item.id];
           if (!f) return null;
+          // 축구공은 동적 위치 사용
+          const dynamicPos = (!editMode && item.id === 'soccerBall' && ballPositions[idx]) ? ballPositions[idx] : null;
+          const renderX = dynamicPos ? dynamicPos.x : item.x;
+          const renderY = dynamicPos ? dynamicPos.y : item.y;
           return (
             <div
               key={`f-${idx}`}
@@ -574,12 +657,12 @@ export default function MyRoom({ player, nickname, onBack }) {
               onPointerUp={handlePointerUp}
               style={{
                 position: 'absolute',
-                left: `${(item.x / 300) * 100}%`,
-                top: `${(item.y / 200) * 100}%`,
+                left: `${(renderX / 300) * 100}%`,
+                top: `${(renderY / 200) * 100}%`,
                 cursor: editMode ? 'grab' : 'default',
-                zIndex: f.wallMount ? 1 : Math.floor(item.y) + 10,
+                zIndex: f.wallMount ? 1 : Math.floor(renderY) + 10,
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
-                transition: dragging?.idx === idx ? 'none' : 'left 0.1s, top 0.1s',
+                transition: (dragging?.idx === idx || dynamicPos) ? 'none' : 'left 0.1s, top 0.1s',
                 touchAction: 'none',
               }}
             >
