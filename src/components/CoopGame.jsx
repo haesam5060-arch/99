@@ -718,12 +718,15 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         {choices.map((choice, idx) => (
           <button
             key={`${currentDan}-${qIndex}-${idx}`}
-            className={`choice-btn ${selectedChoice === choice ? (choice === currentQuestion?.answer ? 'correct' : 'wrong') : ''}`}
+            className={`choice-btn ${
+              feedback && choice === currentQuestion?.answer ? 'correct' : ''
+            } ${
+              feedback && feedback.type === 'wrong' && selectedChoice === choice ? 'wrong' : ''
+            }`}
             onClick={() => handleAnswer(choice)}
             disabled={gamePhase !== 'playing'}
           >
-            <span className="choice-number">{idx + 1}</span>
-            <span className="choice-value">{choice}</span>
+            {choice}
           </button>
         ))}
       </div>

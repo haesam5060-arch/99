@@ -8,6 +8,13 @@ const SCALE = 2;
 
 const ACTION_DURATION = { idle: [2000, 4000], walk: [1500, 3000], sleep: [4000, 7000], sit: [3000, 5000] };
 
+const SPEECH_BUBBLES = [
+  '구구단 연습하자~', '오늘도 화이팅!', '심심해~', '놀아줘!',
+  '배고파...', '잠온다 zzZ', '같이 공부할까?', '나 천재인듯?',
+  '7x8은 56!', '여기 좋다~', '간식 먹고싶다', '숙제 다했어?',
+  '최고의 하루!', '으쌰으쌰!', '힘내자!', '뭐하고 놀까?',
+];
+
 function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
@@ -38,7 +45,7 @@ function FurnitureCanvas({ furnitureId, scale = 2 }) {
   if (!f) return null;
   const w = f.w * scale;
   const h = f.h * scale;
-  return <canvas ref={canvasRef} width={w} height={h} style={{ width: w, height: h, imageRendering: 'pixelated' }} />;
+  return <canvas ref={canvasRef} width={w} height={h} style={{ width: w, height: h, imageRendering: 'pixelated', pointerEvents: 'none' }} />;
 }
 
 // ── 캐릭터 렌더러 (실제 px 좌표) ──
@@ -135,6 +142,8 @@ export default function MyRoom({ player, nickname, onBack }) {
       flip: Math.random() > 0.5,
       actionTimer: Date.now() + randRange(1000, 3000),
       interacting: null,
+      speech: null,
+      speechTimer: Date.now() + randRange(3000, 8000),
     }));
     setCharStates(states);
   }, [ownedCharacters.length, roomSize.w]);
@@ -199,6 +208,16 @@ export default function MyRoom({ player, nickname, onBack }) {
           return { ...ch, action: 'sit', targetX: null, actionTimer: now + duration, interacting: 'sit' };
         }
         return { ...ch, action: 'idle', targetX: null, actionTimer: now + duration, interacting: null };
+      }).map(ch => {
+        const now = Date.now();
+        // 말풍선 타이머
+        if (ch.speech && now > ch.speechTimer) {
+          return { ...ch, speech: null, speechTimer: now + randRange(5000, 12000) };
+        }
+        if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep') {
+          return { ...ch, speech: SPEECH_BUBBLES[Math.floor(Math.random() * SPEECH_BUBBLES.length)], speechTimer: now + 3000 };
+        }
+        return ch;
       }));
       animFrameRef.current = requestAnimationFrame(tick);
     };
@@ -246,6 +265,13 @@ export default function MyRoom({ player, nickname, onBack }) {
         @keyframes zzzFloat {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-8px); }
+        }
+        @keyframes speechBubble {
+          0% { opacity: 0; transform: translateX(-50%) scale(0.5); }
+          10% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+          20% { transform: translateX(-50%) scale(1); }
+          80% { opacity: 1; transform: translateX(-50%) scale(1); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.9); }
         }
       `}</style>
 
@@ -364,6 +390,34 @@ export default function MyRoom({ player, nickname, onBack }) {
               sleeping={ch.action === 'sleep'}
               scale={SCALE}
             />
+            {ch.speech && (
+              <div style={{
+                position: 'absolute',
+                left: ch.x,
+                top: ch.y - 55,
+                transform: 'translateX(-50%)',
+                background: '#fff',
+                color: '#333',
+                fontSize: 7,
+                fontFamily: "'Press Start 2P', monospace",
+                padding: '4px 8px',
+                borderRadius: 6,
+                whiteSpace: 'nowrap',
+                zIndex: 9999,
+                pointerEvents: 'none',
+                animation: 'speechBubble 3s ease-in-out forwards',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              }}>
+                {ch.speech}
+                <div style={{
+                  position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)',
+                  width: 0, height: 0,
+                  borderLeft: '5px solid transparent',
+                  borderRight: '5px solid transparent',
+                  borderTop: '5px solid #fff',
+                }} />
+              </div>
+            )}
             {ch.action === 'sleep' && (
               <div style={{
                 position: 'absolute',
