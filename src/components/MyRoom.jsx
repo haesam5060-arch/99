@@ -201,6 +201,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const ownedCharacters = player.characters || [0];
   const equippedId = Number(player.equippedCharacter ?? ownedCharacters[0]);
   const [ridingTruckIdx, setRidingTruckIdx] = useState(null); // 탑승 중인 트럭 layout index
+  const tailRef = useRef([]); // 꼬리물기 캐릭터 ID 순서 배열
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
@@ -309,8 +310,14 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (editMode) return;
 
     const PLAYER_SPEED = 1.5;
+    const TAIL_GAP = 28; // 꼬리 캐릭터 간격 (px)
+    const TAIL_FOLLOW_SPEED = 2.5;
+    const TAIL_HIT_RANGE = 30; // 충돌 감지 범위
+
     const tick = () => {
-      setCharStates(prev => prev.map(ch => {
+      setCharStates(prev => {
+        // 1단계: 장착 캐릭터 이동
+        const updated = prev.map(ch => {
         // 장착 캐릭터는 플레이어가 직접 조작
         if (Number(ch.id) === equippedId) {
           const keys = keysRef.current;
@@ -320,7 +327,6 @@ export default function MyRoom({ player, nickname, onBack }) {
           if (keys.ArrowRight) dx += 1;
           if (keys.ArrowUp) dy -= 1;
           if (keys.ArrowDown) dy += 1;
-          // 조이스틱 입력 합산
           if (joy.active) { dx += joy.dx; dy += joy.dy; }
           const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
           if (moving) {
@@ -334,6 +340,8 @@ export default function MyRoom({ player, nickname, onBack }) {
           }
           return ch.action === 'walk' ? { ...ch, action: 'idle' } : ch;
         }
+        // 꼬리물기 중인 캐릭터는 AI 스킵 (2단계에서 처리)
+        if (ch.inTail) return ch;
         const now = Date.now();
         if (now < ch.actionTimer) {
           if (ch.action === 'walk' && ch.targetX != null) {
@@ -495,7 +503,52 @@ export default function MyRoom({ player, nickname, onBack }) {
           return { ...ch, speech: msg, speechTimer: now + 6000 };
         }
         return ch;
-      }));
+      });
+
+        // 2단계: 꼬리물기 - 트럭 탑승 중 충돌 감지 & 따라가기
+        const leader = updated.find(c => Number(c.id) === equippedId);
+        if (leader?.riding) {
+          // 충돌 감지: 꼬리에 없는 캐릭터가 리더/꼬리 끝에 닿으면 합류
+          const tail = tailRef.current;
+          // 꼬리 체인의 마지막 캐릭터 (없으면 리더)
+          const lastInChain = tail.length > 0
+            ? updated.find(c => Number(c.id) === tail[tail.length - 1]) || leader
+            : leader;
+          updated.forEach(c => {
+            if (Number(c.id) === equippedId) return;
+            if (c.hidden) return;
+            if (tail.includes(Number(c.id))) return;
+            const dx = lastInChain.x - c.x;
+            const dy = lastInChain.y - c.y;
+            if (Math.sqrt(dx * dx + dy * dy) < TAIL_HIT_RANGE) {
+              tail.push(Number(c.id));
+            }
+          });
+
+          // 꼬리 캐릭터들 따라가기
+          for (let i = 0; i < tail.length; i++) {
+            const targetCh = i === 0 ? leader : updated.find(c => Number(c.id) === tail[i - 1]);
+            const follower = updated.find(c => Number(c.id) === tail[i]);
+            if (!targetCh || !follower) continue;
+            const dx = targetCh.x - follower.x;
+            const dy = targetCh.y - follower.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > TAIL_GAP) {
+              const move = Math.min(TAIL_FOLLOW_SPEED, dist - TAIL_GAP + 0.5);
+              follower.x += (dx / dist) * move;
+              follower.y += (dy / dist) * move;
+              follower.flip = dx < 0;
+              follower.action = 'walk';
+              follower.inTail = true;
+            } else {
+              if (follower.inTail) follower.action = 'idle';
+              follower.inTail = true;
+            }
+          }
+        }
+
+        return updated;
+      });
       // ── 축구공 물리 ──
       const BALL_FRICTION = 0.97;
       const BALL_MIN_SPEED = 0.05;
@@ -653,9 +706,12 @@ export default function MyRoom({ player, nickname, onBack }) {
   const handleDismount = () => {
     playClick();
     setRidingTruckIdx(null);
-    setCharStates(prev => prev.map(ch =>
-      Number(ch.id) === equippedId ? { ...ch, riding: false, speech: '도착~!', speechTimer: Date.now() + 3000 } : ch
-    ));
+    tailRef.current = []; // 꼬리 해제
+    setCharStates(prev => prev.map(ch => {
+      if (Number(ch.id) === equippedId) return { ...ch, riding: false, speech: '도착~!', speechTimer: Date.now() + 3000 };
+      if (ch.inTail) return { ...ch, inTail: false, action: 'idle', actionTimer: Date.now() + randRange(2000, 4000) };
+      return ch;
+    }));
   };
 
   return (
