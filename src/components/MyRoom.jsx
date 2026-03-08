@@ -376,12 +376,11 @@ export default function MyRoom({ player, nickname, onBack }) {
     })();
   }, [nickname]);
 
-  // 실제 DOM 크기 추적
+  // 실제 DOM 크기 추적 (clientWidth/Height = padding box, 테두리 제외)
   useEffect(() => {
     const updateSize = () => {
       if (roomRef.current) {
-        const rect = roomRef.current.getBoundingClientRect();
-        setRoomSize({ w: rect.width, h: rect.height });
+        setRoomSize({ w: roomRef.current.clientWidth, h: roomRef.current.clientHeight });
       }
     };
     updateSize();
@@ -1380,9 +1379,12 @@ export default function MyRoom({ player, nickname, onBack }) {
     e.preventDefault();
     e.stopPropagation();
     e.target.setPointerCapture(e.pointerId);
-    const rect = roomRef.current.getBoundingClientRect();
-    const vx = ((e.clientX - rect.left) / rect.width) * 300;
-    const vy = ((e.clientY - rect.top) / rect.height) * 200;
+    const el = roomRef.current;
+    const rect = el.getBoundingClientRect();
+    const borderL = parseFloat(getComputedStyle(el).borderLeftWidth) || 0;
+    const borderT = parseFloat(getComputedStyle(el).borderTopWidth) || 0;
+    const vx = ((e.clientX - rect.left - borderL) / el.clientWidth) * 300;
+    const vy = ((e.clientY - rect.top - borderT) / el.clientHeight) * 200;
     const dragInfo = { idx, offsetX: vx - layout[idx].x, offsetY: vy - layout[idx].y, pointerId: e.pointerId };
     draggingRef.current = dragInfo;
     setDragging(dragInfo);
@@ -1392,16 +1394,20 @@ export default function MyRoom({ player, nickname, onBack }) {
     const drag = draggingRef.current;
     if (!drag || !roomRef.current) return;
     e.preventDefault();
-    const rect = roomRef.current.getBoundingClientRect();
-    const vx = ((e.clientX - rect.left) / rect.width) * 300 - drag.offsetX;
-    const vy = ((e.clientY - rect.top) / rect.height) * 200 - drag.offsetY;
+    const el = roomRef.current;
+    const rect = el.getBoundingClientRect();
+    const borderL = parseFloat(getComputedStyle(el).borderLeftWidth) || 0;
+    const borderT = parseFloat(getComputedStyle(el).borderTopWidth) || 0;
+    const cw = el.clientWidth, ch = el.clientHeight;
+    const vx = ((e.clientX - rect.left - borderL) / cw) * 300 - drag.offsetX;
+    const vy = ((e.clientY - rect.top - borderT) / ch) * 200 - drag.offsetY;
     setLayout(prev => prev.map((item, i) => {
       if (i !== drag.idx) return item;
       const f = FURNITURE_DEFS[item.id];
       return {
         ...item,
-        x: Math.max(0, Math.min(300 - (f.w * SCALE / rect.width) * 300, vx)),
-        y: Math.max(0, Math.min(200 - (f.h * SCALE / rect.height) * 200, vy)),
+        x: Math.max(0, Math.min(300 - (f.w * SCALE / cw) * 300, vx)),
+        y: Math.max(0, Math.min(200 - (f.h * SCALE / ch) * 200, vy)),
       };
     }));
   };
