@@ -188,6 +188,7 @@ export default function GamePlay({
   const nextQuestion = () => {
     setFeedback(null);
     setParticles([]);
+    setSkillName(null);
     const nextIdx = questionIndex + 1;
 
     if (nextIdx >= questions.length) {
