@@ -1,12 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
+import { CHARACTER_SPRITES, CHARACTER_PALETTES } from '../data/characters';
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
 
-const ROOM_W = 300;
-const ROOM_H = 200;
-const WALL_H = 60;
 const SCALE = 2;
 
 const ACTION_DURATION = { idle: [2000, 4000], walk: [1500, 3000], sleep: [4000, 7000], sit: [3000, 5000] };
@@ -15,6 +12,7 @@ function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
+// ── 가구 캔버스 ──
 function FurnitureCanvas({ furnitureId, scale = 2 }) {
   const canvasRef = useRef(null);
   const f = FURNITURE_DEFS[furnitureId];
@@ -43,7 +41,8 @@ function FurnitureCanvas({ furnitureId, scale = 2 }) {
   return <canvas ref={canvasRef} width={w} height={h} style={{ width: w, height: h, imageRendering: 'pixelated' }} />;
 }
 
-function RoomCharacter({ characterId, xPct, yPct, flip, sleeping, scale = 2 }) {
+// ── 캐릭터 렌더러 (실제 px 좌표) ──
+function RoomCharacter({ characterId, x, y, flip, sleeping, scale = 2 }) {
   const canvasRef = useRef(null);
   const palette = CHARACTER_PALETTES[characterId];
   const sprite = CHARACTER_SPRITES[characterId]?.idle;
@@ -68,19 +67,20 @@ function RoomCharacter({ characterId, xPct, yPct, flip, sleeping, scale = 2 }) {
       height={canvasSize}
       style={{
         position: 'absolute',
-        left: `${xPct}%`,
-        bottom: `${100 - yPct}%`,
+        left: x - canvasSize / 2,
+        top: y - canvasSize,
         width: canvasSize,
         height: canvasSize,
         imageRendering: 'pixelated',
         transform: `scaleX(${flip ? -1 : 1})${sleeping ? ' rotate(90deg) translateY(8px)' : ''}`,
-        transition: 'left 0.5s linear, bottom 0.3s linear',
-        zIndex: Math.floor(yPct),
+        transition: 'left 0.5s linear, top 0.3s linear',
+        zIndex: Math.floor(y),
       }}
     />
   );
 }
 
+// ── 메인 ──
 export default function MyRoom({ player, nickname, onBack }) {
   const [layout, setLayout] = useState(() => {
     try {
@@ -97,82 +97,77 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [editMode, setEditMode] = useState(false);
   const [dragging, setDragging] = useState(null);
   const [charStates, setCharStates] = useState([]);
+  const [roomSize, setRoomSize] = useState({ w: 600, h: 400 });
   const roomRef = useRef(null);
   const animFrameRef = useRef(null);
 
   const ownedCharacters = player.characters || [0];
 
+  // 실제 DOM 크기 추적
+  useEffect(() => {
+    const updateSize = () => {
+      if (roomRef.current) {
+        const rect = roomRef.current.getBoundingClientRect();
+        setRoomSize({ w: rect.width, h: rect.height });
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
   useEffect(() => {
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
   }, [layout, nickname]);
 
-  // 바닥 영역: WALL_H(60) ~ ROOM_H(200), 즉 y% = 30% ~ 95%
-  const FLOOR_MIN_Y = ((WALL_H + 20) / ROOM_H) * 100; // ~40%
-  const FLOOR_MAX_Y = 92; // 바닥 근처
+  // 바닥 영역 (실제 px)
+  const floorBottom = roomSize.h * 0.92;
 
+  // 캐릭터 초기 위치 (실제 px)
   useEffect(() => {
+    if (roomSize.w < 10) return;
     const states = ownedCharacters.map((id, i) => ({
       id,
-      x: (10 + (i * 20) % 80), // x를 %로 관리 (0~100)
-      y: FLOOR_MAX_Y - Math.random() * 5,
+      x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
+      y: floorBottom - Math.random() * 20,
       action: 'idle',
       targetX: null,
       flip: Math.random() > 0.5,
       actionTimer: Date.now() + randRange(1000, 3000),
       interacting: null,
-      speech: null,       // { text, until }
     }));
     setCharStates(states);
-  }, [ownedCharacters.length]);
+  }, [ownedCharacters.length, roomSize.w]);
 
-  // 랜덤으로 캐릭터가 기술명을 외침
-  useEffect(() => {
-    if (editMode || charStates.length === 0) return;
-    const interval = setInterval(() => {
-      setCharStates(prev => {
-        const awake = prev.filter(ch => ch.action !== 'sleep');
-        if (awake.length === 0) return prev;
-        const target = awake[Math.floor(Math.random() * awake.length)];
-        return prev.map(ch => {
-          if (ch !== target) return ch;
-          return { ...ch, speech: { text: getRandomSkill(ch.id), until: Date.now() + 2500 } };
-        });
-      });
-    }, randRange(3000, 6000));
-    return () => clearInterval(interval);
-  }, [editMode, charStates.length]);
-
+  // 가구 상호작용 위치 (실제 px)
   const findInteraction = useCallback((type) => {
     for (const item of layout) {
       const f = FURNITURE_DEFS[item.id];
       if (f?.interaction === type) {
-        // layout의 x,y는 ROOM 좌표(0~300, 0~200) → %로 변환
-        return { x: ((item.x + f.w) / ROOM_W) * 100, y: (item.y / ROOM_H) * 100 };
+        const px = (item.x / 300) * roomSize.w + (f.w * SCALE) / 2;
+        const py = (item.y / 200) * roomSize.h + f.h * SCALE;
+        return { x: px, y: py };
       }
     }
     return null;
-  }, [layout]);
+  }, [layout, roomSize]);
 
+  // 캐릭터 AI 루프
   useEffect(() => {
     if (editMode) return;
 
     const tick = () => {
       setCharStates(prev => prev.map(ch => {
         const now = Date.now();
-        // 말풍선 만료 처리
-        const speechExpired = ch.speech && now > ch.speech.until;
-        const updatedSpeech = speechExpired ? null : ch.speech;
-
         if (now < ch.actionTimer) {
           if (ch.action === 'walk' && ch.targetX != null) {
             const dx = ch.targetX - ch.x;
-            if (Math.abs(dx) < 1) {
+            if (Math.abs(dx) < 3) {
               const nextAction = ch.interacting || 'idle';
-              return { ...ch, x: ch.targetX, action: nextAction, targetX: null, speech: updatedSpeech };
+              return { ...ch, x: ch.targetX, action: nextAction, targetX: null };
             }
-            return { ...ch, x: ch.x + Math.sign(dx) * 0.3, flip: dx < 0, speech: updatedSpeech };
+            return { ...ch, x: ch.x + Math.sign(dx) * 1.2, flip: dx < 0 };
           }
-          if (speechExpired) return { ...ch, speech: null };
           return ch;
         }
 
@@ -186,20 +181,20 @@ export default function MyRoom({ player, nickname, onBack }) {
         const duration = randRange(...ACTION_DURATION[newAction]);
 
         if (newAction === 'walk') {
-          const tx = 5 + Math.random() * 85; // 0~100% 범위
+          const tx = 30 + Math.random() * (roomSize.w - 60);
           return { ...ch, action: 'walk', targetX: tx, flip: tx < ch.x, actionTimer: now + duration, interacting: null };
         }
         if (newAction === 'sleep') {
           const pos = findInteraction('sleep');
-          if (pos && Math.abs(ch.x - pos.x) > 10) {
-            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 2000, interacting: 'sleep' };
+          if (pos && Math.abs(ch.x - pos.x) > 40) {
+            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sleep' };
           }
           return { ...ch, action: 'sleep', targetX: null, actionTimer: now + duration, interacting: 'sleep' };
         }
         if (newAction === 'sit') {
           const pos = findInteraction('sit');
-          if (pos && Math.abs(ch.x - pos.x) > 10) {
-            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 2000, interacting: 'sit' };
+          if (pos && Math.abs(ch.x - pos.x) > 40) {
+            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sit' };
           }
           return { ...ch, action: 'sit', targetX: null, actionTimer: now + duration, interacting: 'sit' };
         }
@@ -210,40 +205,35 @@ export default function MyRoom({ player, nickname, onBack }) {
 
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [editMode, findInteraction]);
+  }, [editMode, findInteraction, roomSize]);
 
   const handleRemoveFurniture = (idx) => {
     playClick();
     setLayout(prev => prev.filter((_, i) => i !== idx));
   };
 
+  // ── 드래그 (가상 300x200 좌표로 저장) ──
   const handlePointerDown = (e, idx) => {
     if (!editMode) return;
     e.preventDefault();
     const rect = roomRef.current.getBoundingClientRect();
-    const scaleX = ROOM_W / rect.width;
-    const scaleY = ROOM_H / rect.height;
-    setDragging({
-      idx,
-      offsetX: (e.clientX - rect.left) * scaleX - layout[idx].x,
-      offsetY: (e.clientY - rect.top) * scaleY - layout[idx].y,
-    });
+    const vx = ((e.clientX - rect.left) / rect.width) * 300;
+    const vy = ((e.clientY - rect.top) / rect.height) * 200;
+    setDragging({ idx, offsetX: vx - layout[idx].x, offsetY: vy - layout[idx].y });
   };
 
   const handlePointerMove = (e) => {
     if (!dragging || !roomRef.current) return;
     const rect = roomRef.current.getBoundingClientRect();
-    const scaleX = ROOM_W / rect.width;
-    const scaleY = ROOM_H / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX - dragging.offsetX;
-    const my = (e.clientY - rect.top) * scaleY - dragging.offsetY;
+    const vx = ((e.clientX - rect.left) / rect.width) * 300 - dragging.offsetX;
+    const vy = ((e.clientY - rect.top) / rect.height) * 200 - dragging.offsetY;
     setLayout(prev => prev.map((item, i) => {
       if (i !== dragging.idx) return item;
       const f = FURNITURE_DEFS[item.id];
       return {
         ...item,
-        x: Math.max(0, Math.min(ROOM_W - f.w * SCALE, mx)),
-        y: Math.max(0, Math.min(ROOM_H - f.h * SCALE, my)),
+        x: Math.max(0, Math.min(300 - f.w * SCALE, vx)),
+        y: Math.max(0, Math.min(200 - f.h * SCALE, vy)),
       };
     }));
   };
@@ -256,13 +246,6 @@ export default function MyRoom({ player, nickname, onBack }) {
         @keyframes zzzFloat {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-8px); }
-        }
-        @keyframes speechBubble {
-          0% { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.5); }
-          15% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.05); }
-          25% { transform: translateX(-50%) translateY(0) scale(1); }
-          75% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-          100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.9); }
         }
       `}</style>
 
@@ -297,7 +280,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           position: 'relative',
           width: '100%',
           maxWidth: 600,
-          aspectRatio: `${ROOM_W} / ${ROOM_H}`,
+          aspectRatio: '3 / 2',
           background: 'linear-gradient(180deg, #2a2a5e 0%, #1e1e4a 100%)',
           borderRadius: 8,
           overflow: 'hidden',
@@ -305,23 +288,24 @@ export default function MyRoom({ player, nickname, onBack }) {
           touchAction: 'none',
         }}
       >
+        {/* 벽 */}
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0,
-          height: `${(WALL_H / ROOM_H) * 100}%`,
+          position: 'absolute', top: 0, left: 0, right: 0, height: '30%',
           background: 'linear-gradient(180deg, #3a3a6e 0%, #2a2a5e 100%)',
           borderBottom: '3px solid #5c5c8a',
         }} />
+        {/* 바닥 */}
         <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          height: `${((ROOM_H - WALL_H) / ROOM_H) * 100}%`,
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: '70%',
           background: 'repeating-conic-gradient(#4a3728 0% 25%, #5a4738 0% 50%) 0 0 / 20px 20px',
         }} />
+        {/* 걸레받이 */}
         <div style={{
-          position: 'absolute', top: `${((WALL_H - 4) / ROOM_H) * 100}%`, left: 0, right: 0,
+          position: 'absolute', top: 'calc(30% - 2px)', left: 0, right: 0,
           height: 4, background: '#7a6a5a',
         }} />
 
-        {/* 가구 */}
+        {/* 가구 (가상 300x200 → %로 변환) */}
         {layout.map((item, idx) => {
           const f = FURNITURE_DEFS[item.id];
           if (!f) return null;
@@ -331,10 +315,10 @@ export default function MyRoom({ player, nickname, onBack }) {
               onPointerDown={(e) => handlePointerDown(e, idx)}
               style={{
                 position: 'absolute',
-                left: `${(item.x / ROOM_W) * 100}%`,
-                top: `${(item.y / ROOM_H) * 100}%`,
+                left: `${(item.x / 300) * 100}%`,
+                top: `${(item.y / 200) * 100}%`,
                 cursor: editMode ? 'grab' : 'default',
-                zIndex: f.wallMount ? 1 : Math.floor(item.y),
+                zIndex: f.wallMount ? 1 : Math.floor(item.y) + 10,
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
                 transition: dragging?.idx === idx ? 'none' : 'left 0.1s, top 0.1s',
               }}
@@ -369,13 +353,13 @@ export default function MyRoom({ player, nickname, onBack }) {
           );
         })}
 
-        {/* 캐릭터 */}
+        {/* 캐릭터 (실제 px 좌표) */}
         {!editMode && charStates.map((ch, idx) => (
           <div key={`char-${idx}`}>
             <RoomCharacter
               characterId={ch.id}
-              x={`${(ch.x / ROOM_W) * 100}%`}
-              y={`${(ch.y / ROOM_H) * 100}%`}
+              x={ch.x}
+              y={ch.y}
               flip={ch.flip}
               sleeping={ch.action === 'sleep'}
               scale={SCALE}
@@ -383,8 +367,8 @@ export default function MyRoom({ player, nickname, onBack }) {
             {ch.action === 'sleep' && (
               <div style={{
                 position: 'absolute',
-                left: `${((ch.x + 20) / ROOM_W) * 100}%`,
-                top: `${((ch.y - 40) / ROOM_H) * 100}%`,
+                left: ch.x + 10,
+                top: ch.y - 50,
                 fontSize: 10, color: '#aaccff',
                 fontFamily: "'Press Start 2P', monospace",
                 animation: 'zzzFloat 2s ease-in-out infinite',
@@ -393,48 +377,13 @@ export default function MyRoom({ player, nickname, onBack }) {
                 z Z z
               </div>
             )}
-            {ch.speech && (
-              <div
-                key={ch.speech.text + ch.speech.until}
-                style={{
-                  position: 'absolute',
-                  left: `${ch.x}%`,
-                  top: `${ch.y - 22}%`,
-                  transform: 'translateX(-50%)',
-                  background: '#fff',
-                  color: CHARACTER_PALETTES[ch.id]?.colors?.[1] || '#333',
-                  border: `2px solid ${CHARACTER_PALETTES[ch.id]?.colors?.[2] || '#666'}`,
-                  borderRadius: 6,
-                  padding: '3px 6px',
-                  fontSize: 7,
-                  fontFamily: "'Press Start 2P', monospace",
-                  whiteSpace: 'nowrap',
-                  zIndex: 9999,
-                  pointerEvents: 'none',
-                  animation: 'speechBubble 2.5s ease-out forwards',
-                  textShadow: 'none',
-                  boxShadow: '1px 1px 0 rgba(0,0,0,0.2)',
-                }}
-              >
-                {ch.speech.text}
-                <div style={{
-                  position: 'absolute',
-                  bottom: -6,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: 0, height: 0,
-                  borderLeft: '4px solid transparent',
-                  borderRight: '4px solid transparent',
-                  borderTop: `6px solid ${CHARACTER_PALETTES[ch.id]?.colors?.[2] || '#666'}`,
-                }} />
-              </div>
-            )}
           </div>
         ))}
 
+        {/* 가구 없을 때 */}
         {layout.length === 0 && !editMode && (
           <div style={{
-            position: 'absolute', top: '50%', left: '50%',
+            position: 'absolute', top: '55%', left: '50%',
             transform: 'translate(-50%, -50%)',
             fontSize: 10, color: '#666', textAlign: 'center',
             fontFamily: "'Press Start 2P', monospace",
@@ -463,8 +412,8 @@ export default function MyRoom({ player, nickname, onBack }) {
                         playClick();
                         setLayout(prev => [...prev, {
                           id: fId,
-                          x: f.wallMount ? 100 : ROOM_W / 2 - f.w,
-                          y: f.wallMount ? 20 : ROOM_H - f.h * SCALE - 5,
+                          x: f.wallMount ? 100 : 50 + Math.random() * 150,
+                          y: f.wallMount ? 15 : 200 - f.h * SCALE - 10,
                         }]);
                       }}
                       style={{
