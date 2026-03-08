@@ -121,7 +121,7 @@ export default function ModeSelect({ onSelect, onBack, onCoop }) {
 
         <button className="pixel-btn" onClick={() => { playClick(); onCoop(); }}
           style={{ background: '#8B5CF6', borderColor: '#a78bfa #6d28d9 #6d28d9 #a78bfa' }}>
-          협동 지키기
+          함께 구구단
         </button>
         <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center', marginTop: -12 }}>
           최대 4명 · 점수 2배!

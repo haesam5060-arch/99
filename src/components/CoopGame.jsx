@@ -1,483 +1,322 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { calculateScore, WRONG_PENALTY } from '../utils/scoring';
-import { playCorrect, playWrong, playExplosion, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
-import { PLANET_SPRITES, EARTH_SPRITE, getRandomSkill, CHARACTER_PALETTES } from '../data/characters';
-import { broadcastGame, leaveRoom } from '../utils/realtime';
+import { playCorrect, playWrong, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
+import { CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
+import { leaveRoom } from '../utils/realtime';
 import PixelCharacter from './PixelCharacter';
 
-const COOP_FALL_DURATION = 15;
-const QUESTIONS_PER_PLANET = 4;
+const QUESTION_TIME = 10; // 문제당 제한시간(초)
 const SCORE_MULTIPLIER = 2;
 
-// Deterministic choice generation - same input = same output, no randomness
+// 시드 기반 결정적 문제 생성
 function makeChoicesForQuestion(dan, b, answer) {
   const wrong = [];
   for (let i = 1; i <= 9; i++) {
     if (i !== b) wrong.push(dan * i);
   }
-  // Sort wrong answers by distance from correct answer
   wrong.sort((a, bb) => Math.abs(a - answer) - Math.abs(bb - answer));
-  // Take 3 closest wrong answers
   const picks = wrong.slice(0, 3);
-  // Combine with correct answer, sort numerically (deterministic order)
-  const all = [answer, ...picks].sort((a, bb) => a - bb);
-  return all;
+  return [answer, ...picks].sort((a, bb) => a - bb);
 }
 
-// Generate all 9 questions for a dan (deterministic order: 1-9 shuffled by seed)
-function makeQuestionsForDan(dan, seed) {
-  const indices = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  // Seeded shuffle
-  let s = seed;
-  for (let i = indices.length - 1; i > 0; i--) {
-    s = (s * 1103515245 + 12345) & 0x7fffffff;
-    const j = s % (i + 1);
-    [indices[i], indices[j]] = [indices[j], indices[i]];
+function makeAllQuestions(seed) {
+  const allQs = [];
+  for (let dan = 2; dan <= 9; dan++) {
+    const indices = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let s = seed + dan * 1000;
+    for (let i = indices.length - 1; i > 0; i--) {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      const j = s % (i + 1);
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    indices.forEach(b => {
+      allQs.push({ dan, b, answer: dan * b, choices: makeChoicesForQuestion(dan, b, dan * b) });
+    });
   }
-  return indices.map((b) => ({
-    a: dan,
-    b,
-    answer: dan * b,
-    choices: makeChoicesForQuestion(dan, b, dan * b),
-  }));
+  return allQs; // 72문제 (8단 x 9문제)
 }
 
 export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const { isHost, roomChannel, lobbyChannel, players: initialPlayers } = coopData;
 
-  const [currentDan, setCurrentDan] = useState(2);
-  const [questions, setQuestions] = useState([]); // 9 questions for current dan
-  const [qIndex, setQIndex] = useState(0); // current question index (0-8)
-  const [solvedInPlanet, setSolvedInPlanet] = useState(0); // how many solved in current planet group
-  const [selectedChoice, setSelectedChoice] = useState(-1);
-  const [planetY, setPlanetY] = useState(0);
-  const [planetStartTime, setPlanetStartTime] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [myScore, setMyScore] = useState(0);
+  const [gamePhase, setGamePhase] = useState('countdown'); // countdown, playing, danClear, finished
+  const [countdown, setCountdown] = useState(3);
   const [feedback, setFeedback] = useState(null);
-  const [gamePhase, setGamePhase] = useState('ready');
+  const [selectedChoice, setSelectedChoice] = useState(-1);
   const [shake, setShake] = useState(false);
   const [flashColor, setFlashColor] = useState(null);
-  const [currentPlanet, setCurrentPlanet] = useState(0);
-  const [particles, setParticles] = useState([]);
-  const [contributions, setContributions] = useState(() => {
-    const c = {};
-    (initialPlayers || []).forEach((p) => {
-      c[p.nickname] = { correctCount: 0, equippedCharacter: p.equippedCharacter };
-    });
-    return c;
-  });
-  const [totalSessionScore, setTotalSessionScore] = useState(0);
-  const [error, setError] = useState(null);
+  const [timer, setTimer] = useState(QUESTION_TIME);
   const [skillName, setSkillName] = useState(null);
+  const [danClearDan, setDanClearDan] = useState(0);
 
-  const animRef = useRef(null);
-  const subStartTimeRef = useRef(null);
-  const stateRef = useRef({
-    qIndex: 0, questions: [], currentDan: 2,
-    gamePhase: 'ready', totalSessionScore: 0, solvedInPlanet: 0,
-  });
+  // 실시간 랭킹
+  const [rankings, setRankings] = useState(() =>
+    (initialPlayers || []).map(p => ({
+      nickname: p.nickname,
+      characterId: p.equippedCharacter || 0,
+      score: 0,
+      currentDan: 2,
+      qInDan: 0,
+      finished: false,
+    }))
+  );
+  const [rankChanges, setRankChanges] = useState({});
+  const prevRankMapRef = useRef({});
 
-  // Sync refs after every render
+  const timerRef = useRef(null);
+  const qStartTimeRef = useRef(null);
+  const stateRef = useRef({ qIndex: 0, myScore: 0, gamePhase: 'countdown', questions: [] });
+  const seedRef = useRef(0);
+
+  // Refs 동기화
   useEffect(() => {
-    stateRef.current = {
-      qIndex, questions, currentDan,
-      gamePhase, totalSessionScore, solvedInPlanet,
-    };
+    stateRef.current = { qIndex, myScore, gamePhase, questions };
   });
 
   const currentQuestion = questions[qIndex];
-  const choices = currentQuestion?.choices || [];
+  const currentDan = currentQuestion?.dan || 2;
+  const qInDan = currentQuestion ? (qIndex % 9) : 0;
+  const totalQuestions = questions.length;
 
-  // Reset sub-question timer when question changes
-  useEffect(() => {
-    if (currentQuestion) {
-      subStartTimeRef.current = Date.now();
-    }
-  }, [qIndex, currentDan]);
-
-  // Start a dan
-  const startNewDan = (dan, seed) => {
-    const qs = makeQuestionsForDan(dan, seed);
-    setQuestions(qs);
-    setQIndex(0);
-    setSolvedInPlanet(0);
-    setGamePhase('ready');
-    setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-    setFeedback(null);
-    setSelectedChoice(-1);
-    playStageStart();
-
-    stateRef.current.questions = qs;
-    stateRef.current.qIndex = 0;
-    stateRef.current.solvedInPlanet = 0;
-    stateRef.current.gamePhase = 'ready';
-
-    setTimeout(() => {
-      setGamePhase('playing');
-      stateRef.current.gamePhase = 'playing';
-      setPlanetStartTime(Date.now());
-      setPlanetY(0);
-    }, 500);
-  };
-
-  // Initialize
-  useEffect(() => {
-    try {
-      startBGM('game');
-      if (isHost) {
-        const seed = Date.now();
-        startNewDan(2, seed);
-        // Broadcast seed so all clients generate same questions
-        setTimeout(() => {
-          if (roomChannel) {
-            broadcastGame(roomChannel, { type: 'dan-start', dan: 2, seed });
-          }
-        }, 200);
-      }
-    } catch (e) {
-      console.error('init error:', e);
-      setError(`초기화 오류: ${e.message}`);
-    }
-    return () => {
-      stopBGM();
-      cancelAnimationFrame(animRef.current);
-    };
-  }, []);
-
-  // Planet fall animation
-  useEffect(() => {
-    if (gamePhase !== 'playing' || !planetStartTime) return;
-
-    const animate = () => {
-      const elapsed = (Date.now() - planetStartTime) / 1000;
-      const progress = Math.min(elapsed / COOP_FALL_DURATION, 1);
-      setPlanetY(progress);
-
-      if (progress >= 1) {
-        handlePlanetCrash();
-        return;
-      }
-      animRef.current = requestAnimationFrame(animate);
-    };
-    animRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [gamePhase, planetStartTime]);
-
-  // === BROADCAST LISTENER ===
+  // 초기화: 시드 받기 (Presence에서)
   useEffect(() => {
     if (!roomChannel) return;
     let active = true;
 
-    const handler = ({ payload }) => {
-      if (!active || !payload) return;
-      try {
-        switch (payload.type) {
-          case 'dan-start':
-            if (!isHost) {
-              setCurrentDan(payload.dan);
-              stateRef.current.currentDan = payload.dan;
-              startNewDan(payload.dan, payload.seed);
-            }
-            break;
+    // 호스트가 시드를 presence에 포함
+    if (isHost) {
+      const seed = Date.now();
+      seedRef.current = seed;
+      setQuestions(makeAllQuestions(seed));
+      roomChannel.track({
+        nickname,
+        equippedCharacter: player.equippedCharacter || 0,
+        score: 0, currentDan: 2, qInDan: 0, finished: false,
+        seed, // 호스트만 시드 포함
+      });
+    }
 
-          case 'answer-attempt':
-            if (isHost) {
-              const s = stateRef.current;
-              const q = s.questions[s.qIndex];
-              if (!q || s.gamePhase !== 'playing') return;
-
-              const correct = payload.answer === q.answer;
-              const elapsed = subStartTimeRef.current ? (Date.now() - subStartTimeRef.current) / 1000 : 10;
-              const score = correct
-                ? calculateScore(elapsed) * SCORE_MULTIPLIER
-                : WRONG_PENALTY * SCORE_MULTIPLIER;
-
-              broadcastGame(roomChannel, {
-                type: 'answer-result',
-                nickname: payload.nickname,
-                correct,
-                score,
-                newQIndex: correct ? s.qIndex + 1 : s.qIndex,
-                newSolvedInPlanet: correct ? s.solvedInPlanet + 1 : s.solvedInPlanet,
-              });
-
-              if (active) applyAnswerResult(payload.nickname, correct, score);
-            }
-            break;
-
-          case 'answer-result':
-            if (!isHost && active) {
-              applyAnswerResult(payload.nickname, payload.correct, payload.score);
-            }
-            break;
-
-          case 'planet-crash':
-            if (!isHost && active) {
-              setTotalSessionScore((s) => s - payload.penalty);
-              setShake(true);
-              setFlashColor('rgba(255, 0, 0, 0.3)');
-              setFeedback({ type: 'wrong', text: `충돌! -${payload.penalty}P`, score: -payload.penalty });
-              setTimeout(() => {
-                if (!active) return;
-                setShake(false);
-                setFlashColor(null);
-                setFeedback(null);
-              }, 1500);
-            }
-            break;
-
-          case 'next-planet':
-            if (!isHost && active) {
-              setSolvedInPlanet(0);
-              stateRef.current.solvedInPlanet = 0;
-              setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-              setPlanetStartTime(Date.now());
-              setPlanetY(0);
-              setGamePhase('playing');
-              stateRef.current.gamePhase = 'playing';
-              setFeedback(null);
-              setSelectedChoice(-1);
-            }
-            break;
-
-          case 'stage-clear':
-            if (!isHost && active) {
-              setGamePhase('stageClear');
-              stateRef.current.gamePhase = 'stageClear';
-              playStageClear();
-            }
-            break;
-
-          case 'game-over':
-            if (!isHost && active) {
-              setGamePhase('gameOver');
-              stateRef.current.gamePhase = 'gameOver';
-              playGameComplete();
-            }
-            break;
-        }
-      } catch (e) {
-        console.error('broadcast handler error:', e);
-      }
-    };
-
-    roomChannel.on('broadcast', { event: 'game' }, handler);
-    return () => { active = false; };
-  }, [roomChannel, isHost]);
-
-  // Apply answer result
-  const applyAnswerResult = (answerNick, correct, score) => {
-    if (correct) {
-      playCorrect();
-      setFlashColor('rgba(0, 255, 0, 0.15)');
-      setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score, answerNick });
-
-      // Skill name
-      setContributions((prev) => {
-        const charId = prev[answerNick]?.equippedCharacter || 0;
-        try {
-          const palette = CHARACTER_PALETTES?.[charId];
-          const skillColor = palette?.colors?.[1] || '#ffd700';
-          setSkillName({ text: getRandomSkill(charId), color: skillColor });
-        } catch (e) { /* ignore */ }
-        return prev;
+    // Presence sync로 랭킹 + 시드 수신
+    const handleSync = () => {
+      if (!active) return;
+      const state = roomChannel.presenceState();
+      const players = [];
+      let hostSeed = null;
+      Object.values(state).forEach(presences => {
+        presences.forEach(p => {
+          if (p.nickname) {
+            players.push({
+              nickname: p.nickname,
+              characterId: p.equippedCharacter || 0,
+              score: p.score || 0,
+              currentDan: p.currentDan || 2,
+              qInDan: p.qInDan || 0,
+              finished: !!p.finished,
+            });
+            if (p.seed) hostSeed = p.seed;
+          }
+        });
       });
 
-      // +1 기여도
-      setContributions((prev) => ({
-        ...prev,
-        [answerNick]: {
-          ...prev[answerNick],
-          correctCount: (prev[answerNick]?.correctCount || 0) + 1,
-        },
-      }));
-      setTotalSessionScore((s) => s + score);
+      // 비호스트: 시드 받아서 문제 생성
+      if (!isHost && hostSeed && seedRef.current === 0) {
+        seedRef.current = hostSeed;
+        setQuestions(makeAllQuestions(hostSeed));
+      }
 
-      setParticles(Array.from({ length: 8 }, (_, i) => ({
-        id: Date.now() + i,
-        x: Math.random() * 300,
-        color: ['#ff0', '#f80', '#0f0', '#0ff'][Math.floor(Math.random() * 4)],
-        delay: Math.random() * 0.3,
-      })));
+      // 랭킹 업데이트 + 순위 변동 감지
+      const sorted = [...players].sort((a, b) => b.score - a.score || (a.finished ? 1 : 0) - (b.finished ? 1 : 0));
+      const newRankMap = {};
+      sorted.forEach((p, i) => { newRankMap[p.nickname] = i; });
 
-      setTimeout(() => {
-        setFeedback(null);
-        setFlashColor(null);
-        setParticles([]);
-        setSelectedChoice(-1);
-        setSkillName(null);
-        advanceAfterCorrect();
-      }, 800);
-    } else {
-      playWrong();
-      setShake(true);
-      setFlashColor('rgba(255, 0, 0, 0.15)');
-      setFeedback({ type: 'wrong', text: `${answerNick} ${score}`, score });
-
-      // -1 기여도
-      setContributions((prev) => ({
-        ...prev,
-        [answerNick]: {
-          ...prev[answerNick],
-          correctCount: (prev[answerNick]?.correctCount || 0) - 1,
-        },
-      }));
-      setTotalSessionScore((s) => s + score);
-
-      // Wrong answer: question stays the same (don't advance)
-      setTimeout(() => {
-        setShake(false);
-        setFlashColor(null);
-        setFeedback(null);
-        setSelectedChoice(-1);
-      }, 600);
-    }
-  };
-
-  // Advance after correct answer
-  const advanceAfterCorrect = () => {
-    const s = stateRef.current;
-    const newSolved = s.solvedInPlanet + 1;
-
-    if (newSolved >= QUESTIONS_PER_PLANET) {
-      // Planet cleared!
-      playExplosion();
-
-      const nextQIndex = s.qIndex + 1;
-      if (nextQIndex >= s.questions.length) {
-        // Dan complete! All 9 questions solved
-        if (isHost) handleDanComplete();
-      } else {
-        // Next planet, continue with next question
-        if (isHost) {
-          broadcastGame(roomChannel, { type: 'next-planet' });
+      const changes = {};
+      const prev = prevRankMapRef.current;
+      sorted.forEach((p, i) => {
+        if (prev[p.nickname] !== undefined && prev[p.nickname] !== i) {
+          changes[p.nickname] = prev[p.nickname] > i ? 'up' : 'down';
         }
-        setQIndex(nextQIndex);
-        stateRef.current.qIndex = nextQIndex;
-        setSolvedInPlanet(0);
-        stateRef.current.solvedInPlanet = 0;
-        setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-        setPlanetStartTime(Date.now());
-        setPlanetY(0);
-        setFeedback(null);
-        setSelectedChoice(-1);
+      });
+      if (Object.keys(changes).length > 0) {
+        setRankChanges(changes);
+        setTimeout(() => setRankChanges({}), 1500);
       }
-    } else {
-      // Next question in same planet
-      const nextQIndex = s.qIndex + 1;
-      if (nextQIndex >= s.questions.length) {
-        // Dan complete even if planet not full
-        if (isHost) handleDanComplete();
-      } else {
-        setQIndex(nextQIndex);
-        stateRef.current.qIndex = nextQIndex;
-        setSolvedInPlanet(newSolved);
-        stateRef.current.solvedInPlanet = newSolved;
-      }
-    }
-  };
+      prevRankMapRef.current = newRankMap;
+      setRankings(sorted);
+    };
 
-  const handlePlanetCrash = () => {
-    // Planet crashed: penalty for remaining unsolved questions in this planet group
-    const remaining = QUESTIONS_PER_PLANET - stateRef.current.solvedInPlanet;
-    const penalty = remaining * Math.abs(WRONG_PENALTY) * SCORE_MULTIPLIER;
-    setTotalSessionScore((s) => s - penalty);
+    roomChannel.on('presence', { event: 'sync' }, handleSync);
+
+    return () => { active = false; };
+  }, [roomChannel, isHost, nickname]);
+
+  // 카운트다운
+  useEffect(() => {
+    if (gamePhase !== 'countdown') return;
+    if (countdown <= 0) {
+      setGamePhase('playing');
+      qStartTimeRef.current = Date.now();
+      startBGM('game');
+      return;
+    }
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [gamePhase, countdown]);
+
+  // 문제 타이머
+  useEffect(() => {
+    if (gamePhase !== 'playing' || !currentQuestion) return;
+    setTimer(QUESTION_TIME);
+    qStartTimeRef.current = Date.now();
+
+    timerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - qStartTimeRef.current) / 1000;
+      const remaining = Math.max(0, QUESTION_TIME - elapsed);
+      setTimer(remaining);
+      if (remaining <= 0) {
+        clearInterval(timerRef.current);
+        handleTimeout();
+      }
+    }, 50);
+
+    return () => clearInterval(timerRef.current);
+  }, [qIndex, gamePhase]);
+
+  // 타임아웃
+  const handleTimeout = useCallback(() => {
+    const s = stateRef.current;
+    if (s.gamePhase !== 'playing') return;
+    const penalty = WRONG_PENALTY * SCORE_MULTIPLIER;
+    playWrong();
     setShake(true);
-    setFlashColor('rgba(255, 0, 0, 0.3)');
-    setFeedback({ type: 'wrong', text: `충돌! -${penalty}P`, score: -penalty });
-
-    if (isHost) {
-      broadcastGame(roomChannel, { type: 'planet-crash', remaining, penalty });
-    }
+    setFlashColor('rgba(255, 0, 0, 0.15)');
+    setFeedback({ type: 'wrong', text: `시간초과! ${penalty}P` });
+    setMyScore(prev => {
+      const ns = prev + penalty;
+      broadcastMyState(ns, s.qIndex + 1);
+      return ns;
+    });
 
     setTimeout(() => {
       setShake(false);
       setFlashColor(null);
       setFeedback(null);
+      setSelectedChoice(-1);
+      advanceQuestion();
+    }, 800);
+  }, []);
 
-      // Reset planet but keep current question (unsolved questions stay)
-      setSolvedInPlanet(0);
-      stateRef.current.solvedInPlanet = 0;
-
-      const s = stateRef.current;
-      if (s.qIndex >= s.questions.length) {
-        if (isHost) handleDanComplete();
-      } else {
-        if (isHost) {
-          broadcastGame(roomChannel, { type: 'next-planet' });
-        }
-        setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-        setPlanetStartTime(Date.now());
-        setPlanetY(0);
-        setGamePhase('playing');
-        stateRef.current.gamePhase = 'playing';
-      }
-    }, 1500);
-  };
-
-  const handleDanComplete = () => {
-    const nextDan = stateRef.current.currentDan + 1;
-    if (nextDan > 9) {
-      broadcastGame(roomChannel, { type: 'game-over' });
-      setGamePhase('gameOver');
-      stateRef.current.gamePhase = 'gameOver';
-      playGameComplete();
-    } else {
-      broadcastGame(roomChannel, { type: 'stage-clear' });
-      setGamePhase('stageClear');
-      stateRef.current.gamePhase = 'stageClear';
-      playStageClear();
-
-      setTimeout(() => {
-        setCurrentDan(nextDan);
-        stateRef.current.currentDan = nextDan;
-        const seed = Date.now();
-        startNewDan(nextDan, seed);
-        broadcastGame(roomChannel, { type: 'dan-start', dan: nextDan, seed });
-      }, 3000);
-    }
-  };
-
-  const handleAnswer = (answer) => {
-    if (stateRef.current.gamePhase !== 'playing') return;
-    const q = stateRef.current.questions[stateRef.current.qIndex];
+  // 정답 처리
+  const handleAnswer = useCallback((answer) => {
+    const s = stateRef.current;
+    if (s.gamePhase !== 'playing') return;
+    const q = s.questions[s.qIndex];
     if (!q) return;
 
+    clearInterval(timerRef.current);
     setSelectedChoice(answer);
 
-    if (isHost) {
-      const correct = answer === q.answer;
-      const elapsed = subStartTimeRef.current ? (Date.now() - subStartTimeRef.current) / 1000 : 10;
-      const score = correct
-        ? calculateScore(elapsed) * SCORE_MULTIPLIER
-        : WRONG_PENALTY * SCORE_MULTIPLIER;
+    const correct = answer === q.answer;
+    const elapsed = qStartTimeRef.current ? (Date.now() - qStartTimeRef.current) / 1000 : QUESTION_TIME;
+    const score = correct
+      ? calculateScore(elapsed) * SCORE_MULTIPLIER
+      : WRONG_PENALTY * SCORE_MULTIPLIER;
 
-      broadcastGame(roomChannel, {
-        type: 'answer-result',
-        nickname,
-        correct,
-        score,
-      });
-      applyAnswerResult(nickname, correct, score);
+    if (correct) {
+      playCorrect();
+      setFlashColor('rgba(0, 255, 0, 0.12)');
+      setFeedback({ type: 'correct', text: `+${score}P` });
+
+      // 기술 이펙트
+      try {
+        const palette = CHARACTER_PALETTES?.[player.equippedCharacter || 0];
+        const skillColor = palette?.colors?.[1] || '#ffd700';
+        setSkillName({ text: getRandomSkill(player.equippedCharacter || 0), color: skillColor });
+      } catch {}
     } else {
-      broadcastGame(roomChannel, {
-        type: 'answer-attempt',
-        nickname,
-        answer,
-      });
+      playWrong();
+      setShake(true);
+      setFlashColor('rgba(255, 0, 0, 0.15)');
+      setFeedback({ type: 'wrong', text: `${score}P` });
     }
-  };
 
+    setMyScore(prev => {
+      const ns = prev + score;
+      broadcastMyState(ns, s.qIndex + 1);
+      return ns;
+    });
+
+    setTimeout(() => {
+      setShake(false);
+      setFlashColor(null);
+      setFeedback(null);
+      setSelectedChoice(-1);
+      setSkillName(null);
+      advanceQuestion();
+    }, correct ? 600 : 800);
+  }, []);
+
+  // 다음 문제로
+  const advanceQuestion = useCallback(() => {
+    const s = stateRef.current;
+    const nextIdx = s.qIndex + 1;
+    const currentQ = s.questions[s.qIndex];
+    const nextQ = s.questions[nextIdx];
+
+    // 단 변경 체크
+    if (currentQ && nextQ && currentQ.dan !== nextQ.dan) {
+      playStageClear();
+      setDanClearDan(currentQ.dan);
+      setGamePhase('danClear');
+      setTimeout(() => {
+        setQIndex(nextIdx);
+        setGamePhase('playing');
+        playStageStart();
+      }, 1500);
+      return;
+    }
+
+    // 모든 문제 완료
+    if (nextIdx >= s.questions.length) {
+      setGamePhase('finished');
+      playGameComplete();
+      broadcastMyState(s.myScore, nextIdx, true);
+      return;
+    }
+
+    setQIndex(nextIdx);
+  }, []);
+
+  // Presence로 내 상태 브로드캐스트
+  const broadcastMyState = useCallback((score, nextQIdx, finished = false) => {
+    if (!roomChannel) return;
+    const q = stateRef.current.questions[nextQIdx] || stateRef.current.questions[nextQIdx - 1];
+    roomChannel.track({
+      nickname,
+      equippedCharacter: player.equippedCharacter || 0,
+      score,
+      currentDan: q?.dan || 9,
+      qInDan: nextQIdx % 9,
+      finished,
+      seed: isHost ? seedRef.current : undefined,
+    });
+  }, [roomChannel, nickname, isHost]);
+
+  // 나가기
   const handleQuit = () => {
-    cancelAnimationFrame(animRef.current);
+    clearInterval(timerRef.current);
     stopBGM();
     leaveRoom(roomChannel, lobbyChannel);
-    onEnd(stateRef.current.totalSessionScore);
+    onEnd(stateRef.current.myScore);
   };
 
-  // Keyboard
+  // 키보드
   useEffect(() => {
     if (gamePhase !== 'playing' || !currentQuestion) return;
     const handleKey = (e) => {
+      const choices = currentQuestion.choices;
       if (e.key >= '1' && e.key <= '4') {
         const idx = parseInt(e.key) - 1;
         if (choices[idx] !== undefined) handleAnswer(choices[idx]);
@@ -486,253 +325,247 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [gamePhase, choices, currentQuestion]);
+  }, [gamePhase, currentQuestion]);
 
-  const sortedContributions = Object.entries(contributions)
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => b.correctCount - a.correctCount);
+  const myRank = rankings.findIndex(r => r.nickname === nickname) + 1;
 
-  const planetSprite = PLANET_SPRITES[currentPlanet];
-
-  // Progress: how many questions solved in this dan
-  const totalInDan = questions.length;
-  const solvedInDan = qIndex;
-
-  // === ERROR ===
-  if (error) {
+  // === 카운트다운 ===
+  if (gamePhase === 'countdown') {
     return (
       <div className="game-container" style={{ justifyContent: 'center' }}>
-        <div style={{ fontSize: 12, color: '#ff4444', marginBottom: 20 }}>오류 발생</div>
-        <div style={{ fontSize: 9, color: '#aaa', marginBottom: 20, textAlign: 'center' }}>{error}</div>
-        <button className="pixel-btn red" onClick={handleQuit}>나가기</button>
-      </div>
-    );
-  }
-
-  // === STAGE CLEAR ===
-  if (gamePhase === 'stageClear') {
-    return (
-      <div className="game-container" style={{ justifyContent: 'center' }}>
-        <div style={{ fontSize: 24, color: '#ffd700', marginBottom: 20, textShadow: '2px 2px 0 #b8860b' }}>
-          {currentDan}단 클리어!
+        <div style={{ fontSize: 14, color: '#ffd700', marginBottom: 20, fontFamily: "'Press Start 2P', monospace" }}>
+          함께 구구단
         </div>
-        <ContributionBoard contributions={sortedContributions} nickname={nickname} totalScore={totalSessionScore} />
-        <div style={{ fontSize: 10, color: '#aaa', marginTop: 16 }}>다음 단 준비 중...</div>
+        <div style={{ fontSize: 64, color: countdown === 0 ? '#00ff00' : '#fff', fontFamily: "'Press Start 2P', monospace", textShadow: '3px 3px 0 #000' }}>
+          {countdown === 0 ? 'GO!' : countdown}
+        </div>
+        <div style={{ fontSize: 10, color: '#aaa', marginTop: 20 }}>
+          2단~9단 · 각자 풀기 · 점수 경쟁!
+        </div>
+        <RankingBoard rankings={rankings} nickname={nickname} rankChanges={{}} compact />
       </div>
     );
   }
 
-  // === GAME OVER ===
-  if (gamePhase === 'gameOver') {
+  // === 단 클리어 ===
+  if (gamePhase === 'danClear') {
     return (
       <div className="game-container" style={{ justifyContent: 'center' }}>
-        <div style={{ fontSize: 24, color: '#ffd700', marginBottom: 8, textShadow: '2px 2px 0 #b8860b' }}>
+        <div style={{
+          fontSize: 28, color: '#ffd700', fontFamily: "'Press Start 2P', monospace",
+          textShadow: '2px 2px 0 #b8860b', animation: 'scorePopup 1.5s ease-out',
+        }}>
+          {danClearDan}단 완료!
+        </div>
+        <div style={{ fontSize: 12, color: '#aaa', marginTop: 10 }}>
+          다음: {danClearDan + 1}단
+        </div>
+        <RankingBoard rankings={rankings} nickname={nickname} rankChanges={rankChanges} />
+      </div>
+    );
+  }
+
+  // === 게임 완료 ===
+  if (gamePhase === 'finished') {
+    const allFinished = rankings.every(r => r.finished);
+    return (
+      <div className="game-container" style={{ justifyContent: 'center' }}>
+        <div style={{
+          fontSize: 24, color: '#ffd700', marginBottom: 6, fontFamily: "'Press Start 2P', monospace",
+          textShadow: '2px 2px 0 #b8860b',
+        }}>
           게임 완료!
         </div>
-        <div style={{ fontSize: 14, color: '#fff', marginBottom: 20 }}>
-          총 점수: <span style={{ color: '#ffd700' }}>{totalSessionScore.toLocaleString()}P</span>
+        <div style={{ fontSize: 14, color: '#fff', marginBottom: 4 }}>
+          내 점수: <span style={{ color: '#ffd700' }}>{myScore.toLocaleString()}P</span>
         </div>
-        <ContributionBoard contributions={sortedContributions} nickname={nickname} totalScore={totalSessionScore} />
-        <button className="pixel-btn gold" onClick={handleQuit} style={{ marginTop: 24 }}>나가기</button>
+        <div style={{
+          fontSize: 18, color: myRank === 1 ? '#ffd700' : myRank === 2 ? '#c0c0c0' : '#cd7f32',
+          marginBottom: 16, fontFamily: "'Press Start 2P', monospace",
+        }}>
+          {myRank === 1 ? '👑 1위!' : `${myRank}위`}
+        </div>
+
+        <RankingBoard rankings={rankings} nickname={nickname} rankChanges={{}} showScore />
+
+        {!allFinished && (
+          <div style={{ fontSize: 9, color: '#aaa', marginTop: 12, animation: 'blink 1s infinite' }}>
+            다른 플레이어 완료 대기중...
+          </div>
+        )}
+        <button className="pixel-btn gold" onClick={handleQuit} style={{ marginTop: 20 }}>나가기</button>
       </div>
     );
   }
 
-  // === LOADING ===
+  // === 로딩 ===
   if (!currentQuestion) {
     return (
       <div className="game-container" style={{ justifyContent: 'center' }}>
-        <div style={{ fontSize: 12, color: '#aaa' }}>
-          {isHost ? '게임 준비 중...' : '호스트 대기 중...'}
-        </div>
+        <div style={{ fontSize: 12, color: '#aaa' }}>문제 준비 중...</div>
         <button className="pixel-btn red" onClick={handleQuit} style={{ marginTop: 20 }}>나가기</button>
       </div>
     );
   }
 
-  // === PLAYING ===
+  // === 플레이 중 ===
+  const timerPct = timer / QUESTION_TIME;
+  const timerColor = timerPct > 0.6 ? '#00cc66' : timerPct > 0.3 ? '#ffa500' : '#ff3333';
+
   return (
-    <div className={`game-container ${shake ? 'shake' : ''}`} style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
+    <div className={`game-container ${shake ? 'shake' : ''}`} style={{ justifyContent: 'flex-start', paddingTop: 8 }}>
       {flashColor && <div className="flash-overlay" style={{ background: flashColor }} />}
 
-      <div className="hud">
-        <span>{currentDan}단</span>
-        <span style={{ fontSize: 10, color: '#aaa' }}>{solvedInDan}/{totalInDan}</span>
-        <span className="hud-score">{(player.score + totalSessionScore).toLocaleString()} P</span>
+      {/* 상단 HUD */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        width: '100%', padding: '0 8px', marginBottom: 4,
+        fontFamily: "'Press Start 2P', monospace",
+      }}>
+        <span style={{ fontSize: 12, color: '#ffd700' }}>{currentDan}단</span>
+        <span style={{ fontSize: 9, color: '#aaa' }}>{qInDan + 1}/9</span>
+        <span style={{ fontSize: 11, color: '#fff' }}>{myScore.toLocaleString()}P</span>
       </div>
 
-      <button
-        onClick={handleQuit}
-        style={{
-          position: 'fixed', top: 10, left: 10, zIndex: 1000,
-          background: 'rgba(20, 20, 50, 0.8)',
-          border: '2px solid #ff4444', color: '#ff4444',
-          fontFamily: "'Press Start 2P', monospace",
-          fontSize: 9, padding: '6px 12px', cursor: 'pointer', borderRadius: 4,
-        }}
-      >종료</button>
-
-      {/* Timer bar */}
-      <div style={{ width: '100%', height: 6, background: '#1a1a4e', marginBottom: 10, border: '1px solid #333366' }}>
+      {/* 타이머 바 */}
+      <div style={{ width: '100%', height: 8, background: '#1a1a4e', marginBottom: 6, borderRadius: 4, overflow: 'hidden' }}>
         <div style={{
-          width: `${(1 - planetY) * 100}%`, height: '100%',
-          background: planetY > 0.7 ? 'var(--red)' : planetY > 0.4 ? '#ffa500' : 'var(--green)',
-          transition: 'width 0.1s linear',
+          width: `${timerPct * 100}%`, height: '100%', background: timerColor,
+          transition: 'width 0.05s linear, background 0.3s',
+          borderRadius: 4,
         }} />
       </div>
 
-      <div style={{
-        flex: 1, width: '100%', position: 'relative',
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        overflow: 'hidden', minHeight: 300,
-      }}>
-        {/* Planet + question */}
-        <div style={{
-          position: 'absolute', top: `${planetY * 55}%`, left: '50%',
-          transform: 'translateX(-50%)', textAlign: 'center',
-        }}>
-          <div style={{
-            width: 120, height: 120, margin: '0 auto 8px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            position: 'relative',
-          }}>
-            {planetY > 0.05 && gamePhase === 'playing' && (
-              [0, 1, 2, 3, 4, 5].map((i) => (
-                <div key={i} style={{
-                  position: 'absolute', top: -(14 + i * 16),
-                  left: '50%', transform: 'translateX(-50%)',
-                  width: Math.max(6, 14 - i * 2), height: Math.max(6, 14 - i * 2),
-                  borderRadius: '50%', background: planetSprite?.colors?.[1] || '#888',
-                  opacity: 0.5 - i * 0.08, filter: `blur(${i}px)`,
-                }} />
-              ))
-            )}
-            <PlanetCanvasBig sprite={planetSprite} size={120} />
-          </div>
-          <div style={{
-            fontSize: 18, fontFamily: "'Press Start 2P', monospace",
-            color: '#fff', textShadow: '2px 2px 0 #000', whiteSpace: 'nowrap',
-          }}>
-            {currentQuestion.a} x {currentQuestion.b} = ?
-          </div>
-          <div style={{ fontSize: 9, color: '#aaa', marginTop: 4 }}>
-            행성 {solvedInPlanet + 1}/{QUESTIONS_PER_PLANET}
-          </div>
-        </div>
+      {/* 종료 버튼 */}
+      <button onClick={handleQuit} style={{
+        position: 'fixed', top: 10, left: 10, zIndex: 1000,
+        background: 'rgba(20,20,50,0.8)', border: '2px solid #ff4444', color: '#ff4444',
+        fontFamily: "'Press Start 2P', monospace", fontSize: 9, padding: '6px 12px',
+        cursor: 'pointer', borderRadius: 4,
+      }}>종료</button>
 
-        {/* Particles */}
-        {particles.map((p) => (
-          <div key={p.id} style={{
-            position: 'absolute', top: `${planetY * 55}%`,
-            left: `calc(50% + ${p.x - 150}px)`,
-            width: 8, height: 8, background: p.color,
-            animation: `scorePopup 0.8s ease-out ${p.delay}s forwards`, opacity: 0.8,
-          }} />
-        ))}
-
-        {/* Feedback */}
-        {feedback && (
+      {/* 메인 영역 */}
+      <div style={{ flex: 1, width: '100%', display: 'flex', position: 'relative' }}>
+        {/* 왼쪽: 문제 + 선택지 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          {/* 문제 */}
           <div style={{
-            position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
-            fontSize: feedback.type === 'correct' ? 20 : 16,
-            color: feedback.type === 'correct' ? '#00ff00' : '#ff4444',
-            fontFamily: "'Press Start 2P', monospace",
-            textShadow: '2px 2px 0 #000', zIndex: 10,
-            animation: 'scorePopup 1s ease-out forwards',
+            fontSize: 28, fontFamily: "'Press Start 2P', monospace",
+            color: '#fff', textShadow: '2px 2px 0 #000', marginBottom: 24,
           }}>
-            {feedback.text}
+            {currentQuestion.dan} × {currentQuestion.b} = ?
           </div>
-        )}
 
-        {/* Skill name popup */}
-        {skillName && (
-          <div
-            key={Date.now()}
-            className="skill-name-popup"
-            style={{
-              top: '55%', left: '50%',
+          {/* 진행도 점 */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+            {Array.from({ length: 9 }, (_, i) => (
+              <div key={i} style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: i < qInDan ? '#00cc66' : i === qInDan ? '#ffd700' : '#333',
+                transition: 'background 0.3s',
+              }} />
+            ))}
+          </div>
+
+          {/* 선택지 */}
+          <div className="choices-grid" style={{ maxWidth: 280 }}>
+            {currentQuestion.choices.map((choice, idx) => (
+              <button
+                key={`${qIndex}-${idx}`}
+                className={`choice-btn ${
+                  feedback && choice === currentQuestion.answer ? 'correct' : ''
+                } ${
+                  feedback && feedback.type === 'wrong' && selectedChoice === choice ? 'wrong' : ''
+                }`}
+                onClick={() => handleAnswer(choice)}
+                disabled={gamePhase !== 'playing' || feedback !== null}
+              >
+                {choice}
+              </button>
+            ))}
+          </div>
+
+          {/* 피드백 */}
+          {feedback && (
+            <div style={{
+              fontSize: feedback.type === 'correct' ? 22 : 18,
+              color: feedback.type === 'correct' ? '#00ff00' : '#ff4444',
+              fontFamily: "'Press Start 2P', monospace",
+              textShadow: '2px 2px 0 #000', marginTop: 12,
+              animation: 'scorePopup 0.8s ease-out',
+            }}>
+              {feedback.text}
+            </div>
+          )}
+
+          {/* 기술 이름 */}
+          {skillName && (
+            <div className="skill-name-popup" style={{
+              position: 'relative', top: 0, left: 0, transform: 'none', marginTop: 4,
               color: skillName.color,
               textShadow: `2px 2px 0 #000, -1px -1px 0 #000, 0 0 10px ${skillName.color}`,
-            }}
-          >
-            {skillName.text}
-          </div>
-        )}
+            }}>
+              {skillName.text}
+            </div>
+          )}
+        </div>
 
-        {/* Players on earth */}
+        {/* 오른쪽: 실시간 랭킹 */}
         <div style={{
-          position: 'absolute', bottom: -120, left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          width: 120, padding: '8px 6px', borderLeft: '1px solid #333366',
+          display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            {Object.entries(contributions).map(([name, data]) => {
-              const isAttacking = feedback?.type === 'correct' && feedback?.answerNick === name;
-              return (
-                <div key={name} style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 8, color: '#ffd700', marginBottom: 8, textAlign: 'center', fontFamily: "'Press Start 2P', monospace" }}>
+            LIVE 순위
+          </div>
+          {rankings.map((r, i) => {
+            const isMe = r.nickname === nickname;
+            const change = rankChanges[r.nickname];
+            return (
+              <div key={r.nickname} style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '4px 2px', marginBottom: 2,
+                background: isMe ? 'rgba(255,215,0,0.15)' : change === 'up' ? 'rgba(0,255,0,0.1)' : change === 'down' ? 'rgba(255,0,0,0.1)' : 'transparent',
+                borderRadius: 4,
+                transition: 'background 0.3s, transform 0.3s',
+                transform: change === 'up' ? 'scale(1.05)' : 'scale(1)',
+                border: isMe ? '1px solid rgba(255,215,0,0.4)' : '1px solid transparent',
+              }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 'bold', width: 16, textAlign: 'center',
+                  color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#666',
+                  fontFamily: "'Press Start 2P', monospace",
+                }}>
+                  {i === 0 ? '👑' : i + 1}
+                </span>
+                <PixelCharacter characterId={r.characterId} pixelSize={1.5} />
+                <div style={{ flex: 1, overflow: 'hidden' }}>
                   <div style={{
-                    transition: 'transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.3)',
-                    transform: isAttacking ? 'scale(1) translateY(-6px)' : 'scale(1)',
-                    transformOrigin: 'center bottom',
-                    zIndex: isAttacking ? 100 : 1,
-                    position: 'relative',
-                  }}>
-                    <PixelCharacter
-                      characterId={data.equippedCharacter || 0}
-                      frame={isAttacking ? 'attack' : 'idle'}
-                      pixelSize={3}
-                    />
-                  </div>
-                  <div style={{ fontSize: 6, color: name === nickname ? '#ffd700' : '#aaa', marginTop: 2 }}>
-                    {name}
+                    fontSize: 6, color: isMe ? '#ffd700' : '#ccc',
+                    fontFamily: "'Press Start 2P', monospace",
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{r.nickname}</div>
+                  <div style={{ fontSize: 7, color: '#aaa', fontFamily: "'Press Start 2P', monospace" }}>
+                    {r.score.toLocaleString()}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          <EarthCanvas />
+                {change && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 'bold',
+                    color: change === 'up' ? '#00ff00' : '#ff4444',
+                    animation: 'scorePopup 1s ease-out',
+                  }}>
+                    {change === 'up' ? '▲' : '▼'}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
-
-        {/* Contribution board */}
-        <div style={{
-          position: 'absolute', top: 8, right: 8,
-          fontFamily: "'Press Start 2P', monospace", zIndex: 1,
-        }}>
-          <div style={{ fontSize: 7, color: '#ffd700', marginBottom: 4 }}>기여도</div>
-          {sortedContributions.map((c, i) => (
-            <div key={c.name} style={{
-              fontSize: 8, padding: '2px 0',
-              color: c.name === nickname ? 'rgba(255, 215, 0, 0.7)' : 'rgba(255, 255, 255, 0.3)',
-              display: 'flex', gap: 6,
-            }}>
-              <span style={{ width: 14 }}>{i + 1}</span>
-              <span style={{ width: 50, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
-              <span>{c.correctCount}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Choices */}
-      <div className="choices-grid">
-        {choices.map((choice, idx) => (
-          <button
-            key={`${currentDan}-${qIndex}-${idx}`}
-            className={`choice-btn ${
-              feedback && choice === currentQuestion?.answer ? 'correct' : ''
-            } ${
-              feedback && feedback.type === 'wrong' && selectedChoice === choice ? 'wrong' : ''
-            }`}
-            onClick={() => handleAnswer(choice)}
-            disabled={gamePhase !== 'playing'}
-          >
-            {choice}
-          </button>
-        ))}
       </div>
 
       <div style={{
-        fontSize: 9, color: '#555', textAlign: 'center', padding: '8px 0',
+        fontSize: 8, color: '#444', textAlign: 'center', padding: '4px 0',
         fontFamily: "'Press Start 2P', monospace",
       }}>
         1~4 숫자키 | ESC 종료
@@ -741,94 +574,62 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   );
 }
 
-function ContributionBoard({ contributions, nickname, totalScore }) {
+// 랭킹 보드 (카운트다운, 단클리어, 결과 화면용)
+function RankingBoard({ rankings, nickname, rankChanges, compact, showScore }) {
   return (
     <div style={{
-      background: '#141450', border: '3px solid #333366',
-      padding: 16, width: '100%', maxWidth: 320,
+      background: '#0d0d3d', border: '3px solid #333366', borderRadius: 8,
+      padding: compact ? 10 : 16, width: '100%', maxWidth: 320, marginTop: 12,
     }}>
-      <div style={{ fontSize: 11, color: '#ffd700', marginBottom: 10, textAlign: 'center' }}>기여도</div>
-      {totalScore !== undefined && (
-        <div style={{ fontSize: 10, color: '#aaa', marginBottom: 10, textAlign: 'center' }}>
-          전원 획득: <span style={{ color: '#ffd700' }}>{totalScore.toLocaleString()}P</span>
-        </div>
-      )}
-      {contributions.map((c, i) => (
-        <div key={c.name} style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '6px 8px', fontSize: 11,
-          color: c.name === nickname ? '#ffd700' : '#fff',
-          background: c.name === nickname ? 'rgba(255, 215, 0, 0.1)' : 'transparent',
-        }}>
-          <span style={{
-            color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#888',
-            width: 24,
-          }}>{i + 1}위</span>
-          <span style={{ flex: 1 }}>{c.name}</span>
-          <span style={{ color: '#aaa' }}>{c.correctCount}문제</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PlanetCanvasBig({ sprite, size }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    if (!sprite || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const pixelSize = size / 8;
-    canvas.width = size;
-    canvas.height = size;
-    ctx.clearRect(0, 0, size, size);
-
-    sprite.sprite.forEach((row, ry) => {
-      row.forEach((cell, rx) => {
-        if (cell !== 0 && sprite.colors[cell]) {
-          ctx.fillStyle = sprite.colors[cell];
-          ctx.fillRect(rx * pixelSize, ry * pixelSize, pixelSize, pixelSize);
-        }
-      });
-    });
-  }, [sprite, size]);
-
-  return <canvas ref={canvasRef} width={size} height={size} style={{ imageRendering: 'pixelated' }} />;
-}
-
-function EarthCanvas() {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const pixelSize = 20;
-    canvas.width = 24 * pixelSize;
-    canvas.height = 12 * pixelSize;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    EARTH_SPRITE.sprite.forEach((row, ry) => {
-      row.forEach((cell, rx) => {
-        if (cell !== 0 && EARTH_SPRITE.colors[cell]) {
-          ctx.fillStyle = EARTH_SPRITE.colors[cell];
-          ctx.fillRect(rx * pixelSize, ry * pixelSize, pixelSize, pixelSize);
-        }
-      });
-    });
-  }, []);
-
-  return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <canvas ref={canvasRef} width={480} height={240} style={{ imageRendering: 'pixelated' }} />
-      <div style={{
-        position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)',
-        fontFamily: "'Press Start 2P', monospace", fontSize: 52,
-        color: 'rgba(255, 255, 255, 0.4)', pointerEvents: 'none', userSelect: 'none',
-        letterSpacing: 14, textShadow: '0 0 12px rgba(100, 200, 255, 0.3)',
-      }}>
-        지구
+      <div style={{ fontSize: 10, color: '#ffd700', marginBottom: 8, textAlign: 'center', fontFamily: "'Press Start 2P', monospace" }}>
+        순위
       </div>
+      {rankings.map((r, i) => {
+        const isMe = r.nickname === nickname;
+        const change = rankChanges[r.nickname];
+        return (
+          <div key={r.nickname} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '8px 10px', marginBottom: 4, borderRadius: 6,
+            background: isMe ? 'rgba(255,215,0,0.12)' : change === 'up' ? 'rgba(0,255,0,0.08)' : 'transparent',
+            border: isMe ? '1px solid rgba(255,215,0,0.3)' : '1px solid transparent',
+            transition: 'all 0.3s',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                fontSize: 14, width: 28, textAlign: 'center',
+                color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#666',
+                fontFamily: "'Press Start 2P', monospace",
+              }}>
+                {i === 0 ? '👑' : `${i + 1}`}
+              </span>
+              <PixelCharacter characterId={r.characterId} pixelSize={2} />
+              <span style={{
+                fontSize: 10, color: isMe ? '#ffd700' : '#fff',
+                fontFamily: "'Press Start 2P', monospace",
+              }}>{r.nickname}</span>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              {showScore && (
+                <div style={{ fontSize: 11, color: '#ffd700', fontFamily: "'Press Start 2P', monospace" }}>
+                  {r.score.toLocaleString()}P
+                </div>
+              )}
+              <div style={{ fontSize: 7, color: r.finished ? '#00cc66' : '#aaa' }}>
+                {r.finished ? '완료!' : `${r.currentDan}단`}
+              </div>
+              {change && (
+                <span style={{
+                  fontSize: 12, color: change === 'up' ? '#00ff00' : '#ff4444',
+                  animation: 'scorePopup 1s ease-out',
+                }}>
+                  {change === 'up' ? '▲' : '▼'}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

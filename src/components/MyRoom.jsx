@@ -277,6 +277,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
   const [visitRequest, setVisitRequest] = useState(null); // 수신된 방문 요청 { from, characterId }
   const [visitWaiting, setVisitWaiting] = useState(false); // 게스트: 승낙 대기 중
+  const [visitSyncStatus, setVisitSyncStatus] = useState(''); // '' | 'connecting' | 'synced'
   const visitChannelRef = useRef(null);
   const hostChannelRef = useRef(null);
   const lobbyChannelRef = useRef(null);
@@ -613,21 +614,25 @@ export default function MyRoom({ player, nickname, onBack }) {
   }, []);
 
   // 브로드캐스트는 애니메이션 tick에서 직접 실행 (broadcastInTick 함수)
+  const lastGuestBroadcastRef = useRef(0);
   const broadcastInTick = useCallback(() => {
     const chars = charStatesRef.current;
     const eq = chars.find(c => Number(c.id) === equippedId);
     if (!eq) return;
     const rw = roomSizeRef.current.w || 1, rh = roomSizeRef.current.h || 1;
-    // 방문 중이면 상대방 채널에 guest-move (비율 좌표)
+    const now = Date.now();
+    // 방문 중이면 상대방 채널에 guest-move (비율 좌표, 100ms 쓰로틀)
     if (visitModeRef.current === 'visiting' && visitChannelRef.current && visitChannelReadyRef.current) {
-      broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
-        nickname, characterId: equippedId,
-        rx: eq.x / rw, ry: eq.y / rh, flip: eq.flip,
-      });
+      if (now - lastGuestBroadcastRef.current > 100) {
+        lastGuestBroadcastRef.current = now;
+        broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
+          nickname, characterId: equippedId,
+          rx: eq.x / rw, ry: eq.y / rh, flip: eq.flip,
+        });
+      }
     }
     // 호스트로서: 전체 캐릭터 상태를 비율 좌표로 전송 (150ms 쓰로틀)
     if (hostChannelRef.current && hostChannelReadyRef.current) {
-      const now = Date.now();
       if (now - lastBroadcastRef.current > 150) {
         lastBroadcastRef.current = now;
         const fullState = chars.map(c => ({
@@ -673,6 +678,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       return;
     }
     if (payload.type === 'full-state' && payload.chars) {
+      setVisitSyncStatus('synced');
       const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
       setCharStates(prev => {
         const myChar = prev.find(c => Number(c.id) === equippedId);
@@ -766,6 +772,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     const data = await getRoomData(hostNickname);
     if (!data) return;
     visitModeRef.current = 'visiting';
+    setVisitSyncStatus('connecting');
     // 상대방 방 레이아웃 로드
     const hostLayout = Array.isArray(data.room_layout) ? data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]) : [];
     setLayout(hostLayout);
@@ -877,6 +884,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     setVisitMode(null);
     setVisitTarget('');
     setGuests([]);
+    setVisitSyncStatus('');
     // 원래 내 방 레이아웃 복원
     try {
       const saved = localStorage.getItem(`room_layout_${nickname}`);
@@ -1576,6 +1584,11 @@ export default function MyRoom({ player, nickname, onBack }) {
         </button>
         <span style={{ fontSize: 13, color: visitMode === 'visiting' ? '#88ccff' : 'var(--gold)' }}>
           {visitMode === 'visiting' ? `${visitTarget}의 방` : `${nickname}의 방`}
+          {visitMode === 'visiting' && visitSyncStatus && (
+            <span style={{ fontSize: 7, color: visitSyncStatus === 'synced' ? '#88ff88' : '#ffcc00', marginLeft: 6 }}>
+              {visitSyncStatus === 'synced' ? '● 실시간' : '○ 연결중...'}
+            </span>
+          )}
           {guests.length > 0 && !visitMode && (
             <span style={{ fontSize: 8, color: '#88ff88', marginLeft: 6 }}>
               방문자 {guests.length}명

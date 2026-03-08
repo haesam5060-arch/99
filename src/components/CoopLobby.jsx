@@ -150,10 +150,10 @@ export default function CoopLobby({ nickname, player, onStart, onBack }) {
     return (
       <div className="game-container" style={{ justifyContent: 'center' }}>
         <div className="game-title" style={{ fontSize: 18 }}>
-          협동 지키기
+          함께 구구단
         </div>
         <div style={{ fontSize: 10, color: '#aaa', marginBottom: 30, textAlign: 'center', lineHeight: 2 }}>
-          함께 지구를 지켜요!<br />
+          각자 풀어서 점수 경쟁!<br />
           점수 2배, 벌점도 2배!
         </div>
 

@@ -261,11 +261,13 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
 
   // 게스트 위치 수신 (방 주인 측)
   channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
+    console.log('[visit] guest-move 수신:', payload?.nickname || payload?.type);
     if (onGuestUpdate) onGuestUpdate(payload);
   });
 
   // 호스트 캐릭터 위치 수신 (방문자 측)
   channel.on('broadcast', { event: 'host-chars' }, ({ payload }) => {
+    console.log('[visit] host-chars 수신:', payload?.type, payload?.chars?.length);
     if (onHostUpdate) onHostUpdate(payload);
   });
 
@@ -280,7 +282,9 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
   });
 
   channel.subscribe(async (status) => {
+    console.log('[visit] joinVisitRoom 채널 상태:', status, `visit-room-${hostNickname}`);
     if (status === 'SUBSCRIBED') {
+      console.log('[visit] 방문자 채널 구독 완료, state:', channel.state);
       await channel.track({
         nickname: visitorNickname,
         characterId: visitorCharId,
@@ -297,11 +301,13 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
 export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate, onReady }) {
   if (!supabase) return null;
   const channelName = `visit-room-${hostNickname}`;
+  console.log('[host] hostVisitRoom 채널 생성:', channelName);
   const channel = supabase.channel(channelName, {
     config: { broadcast: { self: false, ack: false } },
   });
 
   channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
+    console.log('[host] guest-move 수신:', payload?.nickname || payload?.type);
     if (onGuestUpdate) onGuestUpdate(payload);
   });
 
@@ -318,7 +324,9 @@ export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate, onReady
   });
 
   channel.subscribe(async (status) => {
+    console.log('[host] hostVisitRoom 채널 상태:', status, channelName);
     if (status === 'SUBSCRIBED') {
+      console.log('[host] 호스트 채널 구독 완료, state:', channel.state);
       await channel.track({
         nickname: hostNickname,
         characterId: hostCharId,
@@ -336,10 +344,16 @@ export function broadcastVisitPosition(channel, eventName, payload) {
   if (!channel) return;
   // Supabase Realtime v2: state 프로퍼티로 채널 상태 확인
   if (channel.state && channel.state !== 'joined') {
-    console.warn('[broadcast] 채널 미참여 상태:', channel.state, eventName);
+    console.warn('[visit-broadcast] 채널 미참여:', channel.state, eventName);
     return;
   }
-  channel.send({ type: 'broadcast', event: eventName, payload });
+  channel.send({ type: 'broadcast', event: eventName, payload }).then(result => {
+    if (result !== 'ok') {
+      console.warn('[visit-broadcast] send 실패:', result, eventName);
+    }
+  }).catch(err => {
+    console.error('[visit-broadcast] send 에러:', err, eventName);
+  });
 }
 
 // 방 나가기
