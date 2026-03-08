@@ -209,6 +209,11 @@ export default function MyRoom({ player, nickname, onBack }) {
   // ── 구구단 퀴즈 (자동차 타기 / 문 이동 전) ──
   const [quiz, setQuiz] = useState(null); // { a, b, answer, choices, onCorrect }
   const [quizWrong, setQuizWrong] = useState(null); // 틀린 선택지 인덱스
+  // ── 1:1 대결 퀴즈 ──
+  const [duel, setDuel] = useState(null); // { opponentName, opponentId, a, b, answer, choices, timeLeft }
+  const [duelWrong, setDuelWrong] = useState(null);
+  const [duelResult, setDuelResult] = useState(null); // 'win' | 'lose' | null
+  const duelTimerRef = useRef(null);
   const generateRoomQuiz = useCallback((onCorrect) => {
     const a = 2 + Math.floor(Math.random() * 8); // 2~9
     const b = 1 + Math.floor(Math.random() * 9); // 1~9
@@ -238,6 +243,84 @@ export default function MyRoom({ player, nickname, onBack }) {
     const callback = quiz.onCorrect;
     setQuiz(null);
     if (callback) callback();
+  };
+
+  // ── 1:1 대결 ──
+  const DUEL_TIME = 10; // 제한시간 10초
+  const NEAR_RANGE = 40; // 캐릭터 근접 거리
+
+  const findNearbyCharacter = useCallback((eq) => {
+    if (!eq) return null;
+    // AI 캐릭터 검색
+    const states = charStatesRef.current;
+    for (const ch of states) {
+      if (Number(ch.id) === equippedId || ch.hidden) continue;
+      const dx = eq.x - ch.x, dy = eq.y - ch.y;
+      if (Math.sqrt(dx * dx + dy * dy) < NEAR_RANGE) {
+        return { name: CHARACTER_PALETTES[ch.id]?.name || `#${ch.id}`, charId: ch.id };
+      }
+    }
+    // 게스트(상대 플레이어) 검색
+    for (const g of guests) {
+      const dx = eq.x - g.x, dy = eq.y - g.y;
+      if (Math.sqrt(dx * dx + dy * dy) < NEAR_RANGE) {
+        return { name: g.nickname, charId: g.characterId };
+      }
+    }
+    return null;
+  }, [equippedId, guests]);
+
+  const startDuel = useCallback((opponentName, opponentId) => {
+    const a = 2 + Math.floor(Math.random() * 8);
+    const b = 1 + Math.floor(Math.random() * 9);
+    const answer = a * b;
+    const choiceSet = new Set([answer]);
+    while (choiceSet.size < 4) {
+      const fake = Math.max(1, answer + Math.floor(Math.random() * 21) - 10);
+      choiceSet.add(fake);
+    }
+    const choices = [...choiceSet].sort(() => Math.random() - 0.5);
+    setDuel({ opponentName, opponentId, a, b, answer, choices, timeLeft: DUEL_TIME });
+    setDuelWrong(null);
+    setDuelResult(null);
+    // 타이머 시작
+    if (duelTimerRef.current) clearInterval(duelTimerRef.current);
+    duelTimerRef.current = setInterval(() => {
+      setDuel(prev => {
+        if (!prev) return null;
+        const next = prev.timeLeft - 1;
+        if (next <= 0) {
+          clearInterval(duelTimerRef.current);
+          setDuelResult('lose');
+          return { ...prev, timeLeft: 0 };
+        }
+        return { ...prev, timeLeft: next };
+      });
+    }, 1000);
+  }, []);
+
+  const handleDuelAnswer = async (selected) => {
+    if (!duel || duelResult) return;
+    if (selected !== duel.answer) {
+      setDuelWrong(selected);
+      setTimeout(() => setDuelWrong(null), 400);
+      return;
+    }
+    // 정답 = 승리!
+    clearInterval(duelTimerRef.current);
+    setDuelResult('win');
+    if (isOnline()) {
+      await updateOnlineScore(nickname, 100);
+    } else {
+      updatePlayerScore(nickname, 100);
+    }
+  };
+
+  const closeDuel = () => {
+    clearInterval(duelTimerRef.current);
+    setDuel(null);
+    setDuelResult(null);
+    setDuelWrong(null);
   };
 
   // ── 방 방문 시스템 ──
@@ -316,8 +399,15 @@ export default function MyRoom({ player, nickname, onBack }) {
       }
       if (e.key === ' ' || e.key === 'Spacebar') {
         e.preventDefault();
+        if (duel || quiz) return; // 이미 퀴즈 중이면 무시
         const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
-        if (eq) plantFlower(eq.x, eq.y);
+        if (!eq) return;
+        const nearby = findNearbyCharacter(eq);
+        if (nearby) {
+          startDuel(nearby.name, nearby.charId);
+        } else {
+          plantFlower(eq.x, eq.y);
+        }
       }
     };
     const onUp = (e) => { keysRef.current[e.key] = false; };
@@ -388,6 +478,14 @@ export default function MyRoom({ player, nickname, onBack }) {
         const saved = localStorage.getItem(`room_layout_${nickname}`);
         if (saved) setLayout(JSON.parse(saved));
       } catch {}
+      // 내 보유 캐릭터로 복원
+      setCharStates(ownedCharacters.map((id, i) => ({
+        id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
+        y: floorTop + Math.random() * (floorBottom - floorTop),
+        action: 'idle', targetX: null, targetY: null,
+        flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+        interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+      })));
       return;
     }
     setVisitError('');
@@ -397,6 +495,24 @@ export default function MyRoom({ player, nickname, onBack }) {
     visitModeRef.current = 'visiting';
     // 상대방 방 레이아웃 로드
     if (data.room_layout?.length > 0) setLayout(data.room_layout);
+    // 상대방 보유 캐릭터로 교체 (내 장착 캐릭터만 포함)
+    const hostChars = data.characters || [0];
+    const roomChars = hostChars.includes(equippedId)
+      ? hostChars
+      : [...hostChars, equippedId];
+    setCharStates(prev => {
+      const myEq = prev.find(c => Number(c.id) === equippedId);
+      return roomChars.map((id, i) => {
+        if (Number(id) === equippedId && myEq) return myEq; // 내 캐릭터 위치 유지
+        return {
+          id, x: 40 + (i * (roomSize.w - 80) / Math.max(roomChars.length, 1)),
+          y: floorTop + Math.random() * (floorBottom - floorTop),
+          action: 'idle', targetX: null, targetY: null,
+          flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+          interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+        };
+      });
+    });
     // 방문 채널 접속
     const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
       onHostUpdate: (payload) => {
@@ -454,6 +570,14 @@ export default function MyRoom({ player, nickname, onBack }) {
       const saved = localStorage.getItem(`room_layout_${nickname}`);
       if (saved) setLayout(JSON.parse(saved));
     } catch {}
+    // 내 보유 캐릭터로 복원
+    setCharStates(ownedCharacters.map((id, i) => ({
+      id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
+      y: floorTop + Math.random() * (floorBottom - floorTop),
+      action: 'idle', targetX: null, targetY: null,
+      flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+      interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+    })));
   };
 
   // 바닥 영역 (실제 px) - 벽 30% 아래부터 92%까지
@@ -1385,8 +1509,12 @@ export default function MyRoom({ player, nickname, onBack }) {
         </div>
         <button
           onClick={() => {
+            if (duel || quiz) return;
             const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
-            if (eq) plantFlower(eq.x, eq.y);
+            if (!eq) return;
+            const nearby = findNearbyCharacter(eq);
+            if (nearby) { startDuel(nearby.name, nearby.charId); }
+            else { plantFlower(eq.x, eq.y); }
           }}
           style={{
             marginTop: 8, marginLeft: 12, width: 44, height: 44, borderRadius: '50%',
@@ -1484,6 +1612,13 @@ export default function MyRoom({ player, nickname, onBack }) {
             const saved = localStorage.getItem(`room_layout_${nickname}`);
             if (saved) setLayout(JSON.parse(saved));
           } catch {}
+          setCharStates(ownedCharacters.map((id, i) => ({
+            id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
+            y: floorTop + Math.random() * (floorBottom - floorTop),
+            action: 'idle', targetX: null, targetY: null,
+            flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+            interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+          })));
         }}>
           <div style={{
             background: '#1a1a5e', border: '2px solid #4a4a8a', borderRadius: 10,
@@ -1521,6 +1656,13 @@ export default function MyRoom({ player, nickname, onBack }) {
                   const saved = localStorage.getItem(`room_layout_${nickname}`);
                   if (saved) setLayout(JSON.parse(saved));
                 } catch {}
+                setCharStates(ownedCharacters.map((id, i) => ({
+                  id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
+                  y: floorTop + Math.random() * (floorBottom - floorTop),
+                  action: 'idle', targetX: null, targetY: null,
+                  flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+                  interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+                })));
               }} style={{ fontSize: 9, padding: '5px 12px' }}>
                 취소
               </button>
@@ -1576,6 +1718,98 @@ export default function MyRoom({ player, nickname, onBack }) {
             <div style={{ fontSize: 7, color: '#aaa', marginTop: 10, fontFamily: "'Press Start 2P', monospace" }}>
               맞히면 +100P!
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1:1 대결 퀴즈 모달 */}
+      {duel && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10002,
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #1a0a3e, #2a1a5e)', border: '3px solid #ff6644',
+            borderRadius: 14, padding: 20, minWidth: 280, maxWidth: 320, textAlign: 'center',
+            boxShadow: '0 0 40px rgba(255,100,60,0.4)',
+          }}>
+            {/* VS 헤더 */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ textAlign: 'center' }}>
+                <RoomCharacter characterId={equippedId} x={20} y={32} flip={false} scale={2} />
+                <div style={{ position: 'relative', height: 36 }} />
+                <div style={{ fontSize: 7, color: '#ffcc00', fontFamily: "'Press Start 2P', monospace" }}>{nickname}</div>
+              </div>
+              <div style={{
+                fontSize: 14, color: '#ff4444', fontFamily: "'Press Start 2P', monospace",
+                textShadow: '0 0 10px rgba(255,60,60,0.8)',
+                animation: 'zzzFloat 1s ease-in-out infinite',
+              }}>VS</div>
+              <div style={{ textAlign: 'center' }}>
+                <RoomCharacter characterId={duel.opponentId} x={20} y={32} flip={true} scale={2} />
+                <div style={{ position: 'relative', height: 36 }} />
+                <div style={{ fontSize: 7, color: '#88ccff', fontFamily: "'Press Start 2P', monospace" }}>{duel.opponentName}</div>
+              </div>
+            </div>
+
+            {/* 타이머 */}
+            <div style={{
+              fontSize: 10, fontFamily: "'Press Start 2P', monospace", marginBottom: 8,
+              color: duel.timeLeft <= 3 ? '#ff4444' : '#ffcc00',
+              animation: duel.timeLeft <= 3 ? 'zzzFloat 0.3s ease-in-out infinite' : 'none',
+            }}>
+              ⏱ {duel.timeLeft}초
+            </div>
+
+            {/* 문제 */}
+            {!duelResult && (
+              <>
+                <div style={{ fontSize: 18, color: '#fff', marginBottom: 14, fontFamily: "'Press Start 2P', monospace" }}>
+                  {duel.a} x {duel.b} = ?
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {duel.choices.map((c, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleDuelAnswer(c)}
+                      style={{
+                        fontSize: 13, padding: '10px 0',
+                        fontFamily: "'Press Start 2P', monospace",
+                        background: duelWrong === c
+                          ? 'linear-gradient(135deg, #cc3333, #aa2222)'
+                          : 'linear-gradient(135deg, #3a3a8e, #4a4aae)',
+                        color: '#fff',
+                        border: duelWrong === c ? '2px solid #ff4444' : '2px solid #6a6acc',
+                        borderRadius: 8, cursor: 'pointer',
+                        animation: duelWrong === c ? 'quizShake 0.3s ease' : 'none',
+                      }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* 결과 */}
+            {duelResult && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{
+                  fontSize: 16, fontFamily: "'Press Start 2P', monospace", marginBottom: 10,
+                  color: duelResult === 'win' ? '#44ff44' : '#ff4444',
+                  textShadow: `0 0 10px ${duelResult === 'win' ? 'rgba(60,255,60,0.6)' : 'rgba(255,60,60,0.6)'}`,
+                }}>
+                  {duelResult === 'win' ? '승리! +100P' : '시간 초과!'}
+                </div>
+                <div style={{ fontSize: 9, color: '#aaa', fontFamily: "'Press Start 2P', monospace", marginBottom: 12 }}>
+                  정답: {duel.a} x {duel.b} = {duel.answer}
+                </div>
+                <button className="pixel-btn" onClick={closeDuel} style={{ fontSize: 9, padding: '6px 16px' }}>
+                  확인
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
