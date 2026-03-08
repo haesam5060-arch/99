@@ -192,6 +192,8 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [roomSize, setRoomSize] = useState({ w: 600, h: 400 });
   const [doorOpen, setDoorOpen] = useState(false);
   const [ballPositions, setBallPositions] = useState({}); // { layoutIdx: { x, y } } 가상좌표
+  const [goalCelebration, setGoalCelebration] = useState(null); // { x, y, particles }
+  const goalCooldownRef = useRef(false);
   const ballPhysicsRef = useRef({}); // { layoutIdx: { x, y, vx, vy } } 가상좌표
   const charStatesRef = useRef([]); // 축구공 물리용 최신 캐릭터 상태 참조
   const roomRef = useRef(null);
@@ -251,16 +253,7 @@ export default function MyRoom({ player, nickname, onBack }) {
 
   const findNearbyCharacter = useCallback((eq) => {
     if (!eq) return null;
-    // AI 캐릭터 검색
-    const states = charStatesRef.current;
-    for (const ch of states) {
-      if (Number(ch.id) === equippedId || ch.hidden) continue;
-      const dx = eq.x - ch.x, dy = eq.y - ch.y;
-      if (Math.sqrt(dx * dx + dy * dy) < NEAR_RANGE) {
-        return { name: CHARACTER_PALETTES[ch.id]?.name || `#${ch.id}`, charId: ch.id };
-      }
-    }
-    // 게스트(상대 플레이어) 검색
+    // 온라인 상대방(게스트) 캐릭터만 검색 (AI 캐릭터는 대결 불가)
     for (const g of guests) {
       const dx = eq.x - g.x, dy = eq.y - g.y;
       if (Math.sqrt(dx * dx + dy * dy) < NEAR_RANGE) {
@@ -268,7 +261,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       }
     }
     return null;
-  }, [equippedId, guests]);
+  }, [guests]);
 
   const startDuel = useCallback((opponentName, opponentId) => {
     const a = 2 + Math.floor(Math.random() * 8);
@@ -938,6 +931,48 @@ export default function MyRoom({ player, nickname, onBack }) {
           if (Math.abs(bp.vx) < BALL_MIN_SPEED) bp.vx = 0;
           if (Math.abs(bp.vy) < BALL_MIN_SPEED) bp.vy = 0;
 
+          // 골 감지: 공이 골대 영역 안에 들어왔는지
+          if (!goalCooldownRef.current) {
+            const ballCX = bp.x + (f.w * SCALE) / 2;
+            const ballCY = bp.y + (f.h * SCALE) / 2;
+            layout.forEach((fi) => {
+              if (fi.id !== 'soccerGoal') return;
+              const gf = FURNITURE_DEFS.soccerGoal;
+              const gLeft = fi.x;
+              const gRight = fi.x + gf.w * SCALE;
+              const gTop = fi.y;
+              const gBottom = fi.y + gf.h * SCALE;
+              if (ballCX > gLeft + 4 && ballCX < gRight - 4 && ballCY > gTop && ballCY < gBottom) {
+                goalCooldownRef.current = true;
+                // 골 위치 (% 기준)
+                const goalScreenX = ((fi.x + gf.w * SCALE / 2) / 300) * 100;
+                const goalScreenY = ((fi.y + gf.h * SCALE / 2) / 200) * 100;
+                // 파티클 생성
+                const particles = Array.from({ length: 30 }, (_, i) => ({
+                  id: i,
+                  angle: (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.5,
+                  speed: 2 + Math.random() * 4,
+                  color: ['#ff0', '#f44', '#4f4', '#44f', '#f4f', '#ff8800', '#00ffcc'][Math.floor(Math.random() * 7)],
+                  size: 3 + Math.random() * 5,
+                }));
+                setGoalCelebration({ x: goalScreenX, y: goalScreenY, particles });
+                // 공 리셋: 골대에서 좀 떨어진 곳으로
+                bp.x = 150; bp.y = 130; bp.vx = 0; bp.vy = 0;
+                // 보상: 골 1회당 5점
+                if (isOnline()) {
+                  updateOnlineScore(nickname, 5);
+                } else {
+                  updatePlayerScore(nickname, 5);
+                }
+                // 3초 후 쿨다운 해제 & 축하 제거
+                setTimeout(() => {
+                  goalCooldownRef.current = false;
+                  setGoalCelebration(null);
+                }, 3000);
+              }
+            });
+          }
+
           ballChanged = true;
         }
       });
@@ -1077,6 +1112,44 @@ export default function MyRoom({ player, nickname, onBack }) {
           24% { transform: translateX(-50%) scale(1) translateY(0); }
           80% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
           100% { opacity: 0; transform: translateX(-50%) scale(0.9) translateY(-8px); }
+        }
+        @keyframes goalFlash {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes goalText {
+          0% { opacity: 0; transform: scale(0.3); }
+          15% { opacity: 1; transform: scale(1.3); }
+          30% { transform: scale(1); }
+          75% { opacity: 1; transform: scale(1) translateY(0); }
+          100% { opacity: 0; transform: scale(1.2) translateY(-20px); }
+        }
+        @keyframes goalParticle0 {
+          0% { opacity: 1; transform: translate(0, 0) scale(1); }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
+        }
+        @keyframes goalParticle1 {
+          0% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0deg); }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0) rotate(360deg); }
+        }
+        @keyframes goalParticle2 {
+          0% { opacity: 1; transform: translate(0, 0) scale(1.2); }
+          50% { opacity: 1; }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
+        }
+        @keyframes goalParticle3 {
+          0% { opacity: 1; transform: translate(0, 0) scale(0.8); }
+          30% { opacity: 1; transform: translate(calc(var(--px) * 0.3), calc(var(--py) * 0.3)) scale(1.5); }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
+        }
+        @keyframes goalParticle4 {
+          0% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0deg); }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0.2) rotate(-270deg); }
+        }
+        @keyframes goalParticle5 {
+          0% { opacity: 1; transform: translate(0, 0) scale(1); }
+          40% { opacity: 1; }
+          100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
         }
       `}</style>
 
@@ -1448,6 +1521,66 @@ export default function MyRoom({ player, nickname, onBack }) {
           );
         })}
 
+        {/* 골 세리머니 */}
+        {goalCelebration && (
+          <>
+            {/* 화면 플래시 */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'radial-gradient(circle at center, rgba(255,255,0,0.3), transparent 70%)',
+              zIndex: 10000, pointerEvents: 'none',
+              animation: 'goalFlash 0.5s ease-out',
+            }} />
+            {/* GOAL!! 텍스트 */}
+            <div style={{
+              position: 'absolute',
+              left: '50%', top: '35%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 10002, pointerEvents: 'none',
+              textAlign: 'center',
+            }}>
+              <div style={{
+                fontSize: 32,
+                fontFamily: "'Press Start 2P', monospace",
+                color: '#fff',
+                textShadow: '0 0 10px #ff0, 0 0 20px #f80, 0 0 40px #f44, 2px 2px 0 #c00, -2px -2px 0 #c00',
+                animation: 'goalText 2.5s ease-out forwards',
+                letterSpacing: 4,
+              }}>
+                GOAL!!
+              </div>
+              <div style={{
+                fontSize: 8,
+                fontFamily: "'Press Start 2P', monospace",
+                color: '#ffcc00',
+                marginTop: 6,
+                textShadow: '1px 1px 0 #000',
+                animation: 'goalText 2.5s ease-out forwards',
+              }}>
+                +5 점!
+              </div>
+            </div>
+            {/* 폭죽 파티클 */}
+            {goalCelebration.particles.map((p) => (
+              <div key={`particle-${p.id}`} style={{
+                position: 'absolute',
+                left: `${goalCelebration.x}%`,
+                top: `${goalCelebration.y}%`,
+                width: p.size,
+                height: p.size,
+                borderRadius: p.id % 3 === 0 ? '50%' : p.id % 3 === 1 ? '2px' : '0',
+                background: p.color,
+                zIndex: 10001,
+                pointerEvents: 'none',
+                boxShadow: `0 0 ${p.size}px ${p.color}`,
+                animation: `goalParticle${p.id % 6} ${1 + Math.random() * 1.5}s ease-out forwards`,
+                '--px': `${Math.cos(p.angle) * p.speed * 30}px`,
+                '--py': `${Math.sin(p.angle) * p.speed * 30}px`,
+              }} />
+            ))}
+          </>
+        )}
+
         {/* 가구 없을 때 */}
         {layout.length === 0 && !editMode && (
           <div style={{
@@ -1735,11 +1868,12 @@ export default function MyRoom({ player, nickname, onBack }) {
             boxShadow: '0 0 40px rgba(255,100,60,0.4)',
           }}>
             {/* VS 헤더 */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 14 }}>
               <div style={{ textAlign: 'center' }}>
-                <RoomCharacter characterId={equippedId} x={20} y={32} flip={false} scale={2} />
-                <div style={{ position: 'relative', height: 36 }} />
-                <div style={{ fontSize: 7, color: '#ffcc00', fontFamily: "'Press Start 2P', monospace" }}>{nickname}</div>
+                <div style={{ position: 'relative', width: 40, height: 40, margin: '0 auto' }}>
+                  <RoomCharacter characterId={equippedId} x={20} y={36} flip={false} scale={2} />
+                </div>
+                <div style={{ fontSize: 7, color: '#ffcc00', fontFamily: "'Press Start 2P', monospace", marginTop: 4 }}>{nickname}</div>
               </div>
               <div style={{
                 fontSize: 14, color: '#ff4444', fontFamily: "'Press Start 2P', monospace",
@@ -1747,9 +1881,10 @@ export default function MyRoom({ player, nickname, onBack }) {
                 animation: 'zzzFloat 1s ease-in-out infinite',
               }}>VS</div>
               <div style={{ textAlign: 'center' }}>
-                <RoomCharacter characterId={duel.opponentId} x={20} y={32} flip={true} scale={2} />
-                <div style={{ position: 'relative', height: 36 }} />
-                <div style={{ fontSize: 7, color: '#88ccff', fontFamily: "'Press Start 2P', monospace" }}>{duel.opponentName}</div>
+                <div style={{ position: 'relative', width: 40, height: 40, margin: '0 auto' }}>
+                  <RoomCharacter characterId={duel.opponentId} x={20} y={36} flip={true} scale={2} />
+                </div>
+                <div style={{ fontSize: 7, color: '#88ccff', fontFamily: "'Press Start 2P', monospace", marginTop: 4 }}>{duel.opponentName}</div>
               </div>
             </div>
 

@@ -445,6 +445,20 @@ const FURNITURE_DEFS = {
 // Export for MyRoom to use
 export { FURNITURE_DEFS, FURNITURE_PRICE };
 
+const FURNITURE_TOOLTIPS = {
+  bed: '캐릭터가 침대에서 잠을 자요 zzZ',
+  desk: '캐릭터가 책상에 앉아 공부해요',
+  chair: '캐릭터가 의자에 앉아요',
+  fridge: '캐릭터가 냉장고에서 간식을 꺼내 먹어요',
+  diningTable: '캐릭터가 식탁에서 밥을 먹어요',
+  toyTruck: '캐릭터가 트럭을 타고 돌아다녀요!\n내 캐릭터도 탑승 가능!',
+  tv: '캐릭터가 TV를 시청해요',
+  piano: '캐릭터가 피아노를 연주해요',
+  soccerBall: '캐릭터가 공을 차요!\n골대에 넣으면 GOAL! +5점',
+  soccerGoal: '축구공이 골대에 들어가면\nGOAL!! 폭죽 + 5점 보상!',
+  door: '캐릭터가 외출했다 돌아와요!\n문이 열리고 닫혀요',
+};
+
 const FURNITURE_IDS = Object.keys(FURNITURE_DEFS);
 
 function FurnitureCanvas({ furnitureId, scale = 2 }) {
@@ -482,6 +496,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
   const [schoolInput, setSchoolInput] = useState('');
   const [schoolError, setSchoolError] = useState('');
   const [message, setMessage] = useState(null);
+  const [furnitureTooltip, setFurnitureTooltip] = useState(null);
   const [ownedFurniture, setOwnedFurniture] = useState(() => {
     try {
       const saved = localStorage.getItem(`room_furniture_${nickname}`);
