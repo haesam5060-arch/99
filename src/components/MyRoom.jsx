@@ -3,7 +3,8 @@ import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/c
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
-import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom } from '../utils/supabase';
+import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore } from '../utils/supabase';
+import { updatePlayerScore } from '../utils/storage';
 
 const SCALE = 2;
 
@@ -204,6 +205,40 @@ export default function MyRoom({ player, nickname, onBack }) {
   const tailRef = useRef([]);
   const [flowers, setFlowers] = useState([]); // [{ id, x, y, createdAt }]
   const flowerIdRef = useRef(0);
+
+  // ── 구구단 퀴즈 (자동차 타기 / 문 이동 전) ──
+  const [quiz, setQuiz] = useState(null); // { a, b, answer, choices, onCorrect }
+  const [quizWrong, setQuizWrong] = useState(null); // 틀린 선택지 인덱스
+  const generateRoomQuiz = useCallback((onCorrect) => {
+    const a = 2 + Math.floor(Math.random() * 8); // 2~9
+    const b = 1 + Math.floor(Math.random() * 9); // 1~9
+    const answer = a * b;
+    const choiceSet = new Set([answer]);
+    while (choiceSet.size < 4) {
+      const fake = Math.max(1, answer + Math.floor(Math.random() * 21) - 10);
+      choiceSet.add(fake);
+    }
+    const choices = [...choiceSet].sort(() => Math.random() - 0.5);
+    setQuiz({ a, b, answer, choices, onCorrect });
+  }, []);
+
+  const handleQuizAnswer = async (selected) => {
+    if (!quiz) return;
+    if (selected !== quiz.answer) {
+      setQuizWrong(selected);
+      setTimeout(() => setQuizWrong(null), 500);
+      return;
+    }
+    // 정답! +100점
+    if (isOnline()) {
+      await updateOnlineScore(nickname, 100);
+    } else {
+      updatePlayerScore(nickname, 100);
+    }
+    const callback = quiz.onCorrect;
+    setQuiz(null);
+    if (callback) callback();
+  };
 
   // ── 방 방문 시스템 ──
   const [visitMode, setVisitMode] = useState(null); // null | 'input' | 'visiting'
@@ -876,10 +911,13 @@ export default function MyRoom({ player, nickname, onBack }) {
   const handleRide = () => {
     if (nearbyTruckIdx != null) {
       playClick();
-      setRidingTruckIdx(nearbyTruckIdx);
-      setCharStates(prev => prev.map(ch =>
-        Number(ch.id) === equippedId ? { ...ch, riding: true, speech: '부릉부릉~!', speechTimer: Date.now() + 3000 } : ch
-      ));
+      const truckIdx = nearbyTruckIdx;
+      generateRoomQuiz(() => {
+        setRidingTruckIdx(truckIdx);
+        setCharStates(prev => prev.map(ch =>
+          Number(ch.id) === equippedId ? { ...ch, riding: true, speech: '부릉부릉~!', speechTimer: Date.now() + 3000 } : ch
+        ));
+      });
     }
   };
 
@@ -897,6 +935,13 @@ export default function MyRoom({ player, nickname, onBack }) {
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
       <style>{`
+        @keyframes quizShake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-6px); }
+          40% { transform: translateX(6px); }
+          60% { transform: translateX(-4px); }
+          80% { transform: translateX(4px); }
+        }
         @keyframes zzzFloat {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-8px); }
@@ -1127,15 +1172,17 @@ export default function MyRoom({ player, nickname, onBack }) {
                 {nearDoor && isOnline() && ridingTruckIdx == null && (
                   <button onClick={() => {
                     playClick();
-                    // 이미 방문 중이면 현재 방문 채널 정리
-                    if (visitMode === 'visiting' && visitChannelRef.current) {
-                      leaveVisitRoom(visitChannelRef.current);
-                      visitChannelRef.current = null;
-                      setGuests([]);
-                    }
-                    setVisitMode('input');
-                    setVisitTarget('');
-                    setVisitError('');
+                    generateRoomQuiz(() => {
+                      // 이미 방문 중이면 현재 방문 채널 정리
+                      if (visitMode === 'visiting' && visitChannelRef.current) {
+                        leaveVisitRoom(visitChannelRef.current);
+                        visitChannelRef.current = null;
+                        setGuests([]);
+                      }
+                      setVisitMode('input');
+                      setVisitTarget('');
+                      setVisitError('');
+                    });
                   }} style={{
                     position: 'absolute', left: ch.x, top: ch.y - 58,
                     transform: 'translateX(-50%)',
@@ -1477,6 +1524,54 @@ export default function MyRoom({ player, nickname, onBack }) {
               <button className="pixel-btn gold" onClick={handleVisit} style={{ fontSize: 9, padding: '5px 12px' }}>
                 놀러가기
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 구구단 퀴즈 모달 */}
+      {quiz && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10001,
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #1a1a5e, #2a2a7e)', border: '3px solid var(--gold)',
+            borderRadius: 12, padding: 24, minWidth: 260, textAlign: 'center',
+            boxShadow: '0 0 30px rgba(255,215,0,0.3)',
+          }}>
+            <div style={{ fontSize: 9, color: '#88ccff', marginBottom: 8, fontFamily: "'Press Start 2P', monospace" }}>
+              구구단 퀴즈!
+            </div>
+            <div style={{ fontSize: 18, color: '#fff', marginBottom: 16, fontFamily: "'Press Start 2P', monospace" }}>
+              {quiz.a} x {quiz.b} = ?
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {quiz.choices.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleQuizAnswer(c)}
+                  className="pixel-btn"
+                  style={{
+                    fontSize: 13, padding: '10px 0',
+                    fontFamily: "'Press Start 2P', monospace",
+                    background: quizWrong === c
+                      ? 'linear-gradient(135deg, #cc3333, #aa2222)'
+                      : 'linear-gradient(135deg, #3a3a8e, #4a4aae)',
+                    color: '#fff',
+                    border: quizWrong === c ? '2px solid #ff4444' : '2px solid #6a6acc',
+                    borderRadius: 8, cursor: 'pointer',
+                    transition: 'background 0.2s, border 0.2s',
+                    animation: quizWrong === c ? 'quizShake 0.3s ease' : 'none',
+                  }}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 7, color: '#aaa', marginTop: 10, fontFamily: "'Press Start 2P', monospace" }}>
+              맞히면 +100P!
             </div>
           </div>
         </div>
