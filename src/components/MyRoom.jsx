@@ -202,6 +202,8 @@ export default function MyRoom({ player, nickname, onBack }) {
   const equippedId = Number(player.equippedCharacter ?? ownedCharacters[0]);
   const [ridingTruckIdx, setRidingTruckIdx] = useState(null);
   const tailRef = useRef([]);
+  const [flowers, setFlowers] = useState([]); // [{ id, x, y, createdAt }]
+  const flowerIdRef = useRef(0);
 
   // ── 방 방문 시스템 ──
   const [visitMode, setVisitMode] = useState(null); // null | 'input' | 'visiting'
@@ -250,25 +252,46 @@ export default function MyRoom({ player, nickname, onBack }) {
     }
   }, [layout, nickname]);
 
-  // 키보드 입력
+  // 키보드 입력 + 스페이스바 꽃 심기
+  const plantFlower = useCallback((x, y, fromBroadcast = false) => {
+    const id = flowerIdRef.current++;
+    const colors = ['#ff6688', '#ffaa44', '#ff44aa', '#44aaff', '#ffff44', '#aa66ff'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    setFlowers(prev => [...prev, { id, x, y, color, createdAt: Date.now() }]);
+    setTimeout(() => setFlowers(prev => prev.filter(f => f.id !== id)), 10000);
+    // 브로드캐스트 (방문/호스트 채널)
+    if (!fromBroadcast) {
+      const flowerData = { type: 'flower', x, y, color };
+      if (visitChannelRef.current) broadcastVisitPosition(visitChannelRef.current, 'guest-move', flowerData);
+      if (hostChannelRef.current) broadcastVisitPosition(hostChannelRef.current, 'host-chars', flowerData);
+    }
+  }, []);
+
   useEffect(() => {
     const onDown = (e) => {
       if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
         e.preventDefault();
         keysRef.current[e.key] = true;
       }
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
+        if (eq) plantFlower(eq.x, eq.y);
+      }
     };
     const onUp = (e) => { keysRef.current[e.key] = false; };
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
-  }, []);
+  }, [equippedId, plantFlower]);
 
   // ── 호스트 채널: 내 방을 개방하여 게스트 수신 ──
   useEffect(() => {
     if (!isOnline()) return;
     const ch = hostVisitRoom(nickname, equippedId, {
       onGuestUpdate: (payload) => {
+        // 꽃 수신
+        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
         if (payload.type === 'presence') {
           setGuests(prev => {
             const existing = new Set(prev.map(g => g.nickname));
@@ -320,6 +343,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     // 방문 채널 접속
     const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
       onHostUpdate: (payload) => {
+        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
         // 호스트(방 주인) 캐릭터 위치 수신 → guests에 추가/업데이트
         if (payload.nickname && payload.x != null) {
           setGuests(prev => {
@@ -335,6 +359,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         }
       },
       onGuestUpdate: (payload) => {
+        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
         if (payload.type === 'presence') {
           setGuests(prev => {
             const newGuests = prev.filter(g => g._isHost); // 호스트는 유지
@@ -923,6 +948,32 @@ export default function MyRoom({ player, nickname, onBack }) {
           height: 4, background: '#7a6a5a',
         }} />
 
+        {/* 꽃 */}
+        {flowers.map(f => {
+          const age = (Date.now() - f.createdAt) / 10000; // 0~1
+          return (
+            <div key={`flower-${f.id}`} style={{
+              position: 'absolute', left: f.x, top: f.y - 6,
+              transform: 'translateX(-50%)',
+              fontSize: 14, zIndex: 5, pointerEvents: 'none',
+              opacity: age > 0.7 ? 1 - (age - 0.7) / 0.3 : 1,
+              filter: `hue-rotate(0deg)`,
+            }}>
+              <svg width="12" height="14" viewBox="0 0 12 14">
+                <circle cx="6" cy="4" r="2.5" fill={f.color} />
+                <circle cx="3.5" cy="5.5" r="2" fill={f.color} opacity="0.8" />
+                <circle cx="8.5" cy="5.5" r="2" fill={f.color} opacity="0.8" />
+                <circle cx="4" cy="3" r="2" fill={f.color} opacity="0.7" />
+                <circle cx="8" cy="3" r="2" fill={f.color} opacity="0.7" />
+                <circle cx="6" cy="4.5" r="1.5" fill="#ffee55" />
+                <rect x="5.5" y="6" width="1" height="6" fill="#44aa44" rx="0.5" />
+                <ellipse cx="4" cy="10" rx="2" ry="1" fill="#33882288" />
+                <ellipse cx="8" cy="11" rx="1.5" ry="0.8" fill="#33882288" />
+              </svg>
+            </div>
+          );
+        })}
+
         {/* 가구 (가상 300x200 → %로 변환) */}
         {layout.map((item, idx) => {
           const f = FURNITURE_DEFS[item.id];
@@ -1201,8 +1252,9 @@ export default function MyRoom({ player, nickname, onBack }) {
         )}
       </div>
 
-      {/* 모바일 조이스틱 */}
+      {/* 모바일 조이스틱 + 꽃 버튼 */}
       {!editMode && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginTop: 0 }}>
         <div
           onPointerDown={(e) => {
             e.preventDefault();
@@ -1245,6 +1297,23 @@ export default function MyRoom({ player, nickname, onBack }) {
           }}>
             조이스틱 / 방향키
           </div>
+        </div>
+        <button
+          onClick={() => {
+            const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
+            if (eq) plantFlower(eq.x, eq.y);
+          }}
+          style={{
+            marginTop: 8, marginLeft: 12, width: 44, height: 44, borderRadius: '50%',
+            background: 'radial-gradient(circle, #ff88aa, #cc4466)',
+            border: '2px solid #ffccdd',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', fontSize: 18,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+          }}
+        >
+          🌸
+        </button>
         </div>
       )}
 
