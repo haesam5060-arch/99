@@ -7,7 +7,7 @@ import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
 
 const SCALE = 2;
 
-const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000], eat: [3000, 5000], eat_at: [4000, 6000], play: [3000, 5000], watch: [4000, 6000], music: [3000, 5000], ball: [2000, 4000] };
+const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000], eat: [3000, 5000], eat_at: [4000, 6000], play: [3000, 5000], watch: [4000, 6000], music: [3000, 5000], ball: [2000, 4000], goout: [5000, 5000] };
 
 // 일반 대사 (닉네임 무관)
 const SPEECH_BUBBLES_GENERIC = [
@@ -94,6 +94,8 @@ const INTERACTION_SPEECH = {
   watch: ['만화 보자~', 'TV 볼 시간이다!', '재밌는 거 하고있다~', '꺄~ 재밌어!', '이 프로 좋아!', '다음 편은 언제?', '주인공 멋져!', '한 편만 더~'],
   music: ['도레미파솔~', '라시도~!', '피아노 연습!', '멜로디~', '나 천재 피아니스트!', '딩동댕~', '작곡 중이야!', '콩쿠르 나갈거야!'],
   ball: ['슛! 골인~!', '패스 패스!', '드리블~', '여기로 차!', '골~~~~!', '나 메시다!', '헤딩슛!', '월드컵 우승!'],
+  goout_leave: ['학교 갔다올게~!', '산책 다녀올게~!', '놀이터 다녀올게!', '친구 만나고 올게~!', '마트 다녀올게!', '잠깐 나갔다올게~!'],
+  goout_return: ['다녀왔어~!', '집이 최고야!', '아~ 피곤해!', '재밌었다~!', '돌아왔어!', '집이다 집!'],
 };
 
 function randRange(min, max) {
@@ -101,27 +103,29 @@ function randRange(min, max) {
 }
 
 // ── 가구 캔버스 ──
-export function FurnitureCanvas({ furnitureId, scale = 2 }) {
+export function FurnitureCanvas({ furnitureId, scale = 2, isOpen = false }) {
   const canvasRef = useRef(null);
   const f = FURNITURE_DEFS[furnitureId];
 
   useEffect(() => {
     if (!canvasRef.current || !f) return;
     const ctx = canvasRef.current.getContext('2d');
+    const spriteData = (isOpen && f.spriteOpen) ? f.spriteOpen : f.sprite;
+    const colorData = (isOpen && f.colorsOpen) ? f.colorsOpen : f.colors;
     const w = f.w * scale;
     const h = f.h * scale;
     canvasRef.current.width = w;
     canvasRef.current.height = h;
     ctx.clearRect(0, 0, w, h);
-    f.sprite.forEach((row, y) => {
+    spriteData.forEach((row, y) => {
       row.forEach((val, x) => {
-        if (val && f.colors[val]) {
-          ctx.fillStyle = f.colors[val];
+        if (val && colorData[val]) {
+          ctx.fillStyle = colorData[val];
           ctx.fillRect(x * scale, y * scale, scale, scale);
         }
       });
     });
-  }, [furnitureId, scale]);
+  }, [furnitureId, scale, isOpen]);
 
   if (!f) return null;
   const w = f.w * scale;
@@ -185,6 +189,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [dragging, setDragging] = useState(null);
   const [charStates, setCharStates] = useState([]);
   const [roomSize, setRoomSize] = useState({ w: 600, h: 400 });
+  const [doorOpen, setDoorOpen] = useState(false);
   const roomRef = useRef(null);
   const animFrameRef = useRef(null);
 
@@ -280,6 +285,22 @@ export default function MyRoom({ player, nickname, onBack }) {
             const dy = (ch.targetY || ch.y) - ch.y;
             if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
               const nextAction = ch.interacting || 'idle';
+              // 문 도착 시 외출 처리
+              if (ch.interacting === 'goout') {
+                const leaveSpeech = INTERACTION_SPEECH.goout_leave[Math.floor(Math.random() * INTERACTION_SPEECH.goout_leave.length)];
+                setDoorOpen(true);
+                setTimeout(() => setDoorOpen(false), 1500);
+                setTimeout(() => {
+                  setDoorOpen(true);
+                  setTimeout(() => setDoorOpen(false), 1500);
+                  setCharStates(prev => prev.map(c => {
+                    if (c.id !== ch.id || !c.hidden) return c;
+                    const returnSpeech = INTERACTION_SPEECH.goout_return[Math.floor(Math.random() * INTERACTION_SPEECH.goout_return.length)];
+                    return { ...c, hidden: false, action: 'idle', interacting: null, speech: returnSpeech, speechTimer: Date.now() + 3000, actionTimer: Date.now() + randRange(3000, 5000) };
+                  }));
+                }, 5000);
+                return { ...ch, x: ch.targetX, y: ch.targetY || ch.y, action: 'goout', hidden: true, interacting: 'goout', targetX: null, targetY: null, speech: leaveSpeech, speechTimer: Date.now() + 2000, actionTimer: Date.now() + 8000 };
+              }
               // 가구 도착 시 상호작용 대사
               let arrivalSpeech = null;
               if (ch.interacting && INTERACTION_SPEECH[ch.interacting]) {
@@ -322,6 +343,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         if (findInteraction('watch')) actions.push('watch');
         if (findInteraction('music')) actions.push('music');
         if (findInteraction('ball')) actions.push('ball');
+        if (findInteraction('goout')) actions.push('goout');
 
         // 가중치: walk 30%, idle 20%, 나머지 균등 분배
         let newAction;
@@ -367,6 +389,29 @@ export default function MyRoom({ player, nickname, onBack }) {
             return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 4000, interacting: 'eat', speech: hungrySpeech, speechTimer: now + 2500 };
           }
           return { ...ch, action: 'eat', targetX: null, targetY: null, actionTimer: now + 2000, interacting: 'eat', speech: hungrySpeech, speechTimer: now + 2500 };
+        }
+        // 현관문 외출
+        if (newAction === 'goout') {
+          const pos = findInteraction('goout');
+          if (pos) {
+            if (Math.abs(ch.x - pos.x) > 40) {
+              return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'goout' };
+            }
+            const leaveSpeech = INTERACTION_SPEECH.goout_leave[Math.floor(Math.random() * INTERACTION_SPEECH.goout_leave.length)];
+            setDoorOpen(true);
+            setTimeout(() => setDoorOpen(false), 1500);
+            // 5초 후 돌아오기
+            setTimeout(() => {
+              setDoorOpen(true);
+              setTimeout(() => setDoorOpen(false), 1500);
+              setCharStates(prev => prev.map(c => {
+                if (c.id !== ch.id || !c.hidden) return c;
+                const returnSpeech = INTERACTION_SPEECH.goout_return[Math.floor(Math.random() * INTERACTION_SPEECH.goout_return.length)];
+                return { ...c, hidden: false, action: 'idle', interacting: null, speech: returnSpeech, speechTimer: Date.now() + 3000, actionTimer: Date.now() + randRange(3000, 5000) };
+              }));
+            }, 5000);
+            return { ...ch, action: 'goout', hidden: true, interacting: 'goout', speech: leaveSpeech, speechTimer: now + 2000, actionTimer: now + 8000 };
+          }
         }
         // play, watch, music, ball - 가구로 이동 후 상호작용
         if (['play', 'watch', 'music', 'ball'].includes(newAction)) {
@@ -538,7 +583,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 touchAction: 'none',
               }}
             >
-              <FurnitureCanvas furnitureId={item.id} scale={SCALE} />
+              <FurnitureCanvas furnitureId={item.id} scale={SCALE} isOpen={item.id === 'door' && doorOpen} />
               {editMode && (
                 <>
                   <div style={{
@@ -569,7 +614,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         })}
 
         {/* 캐릭터 (실제 px 좌표) */}
-        {!editMode && charStates.map((ch, idx) => (
+        {!editMode && charStates.filter(ch => !ch.hidden).map((ch, idx) => (
           <div key={`char-${idx}`}>
             <RoomCharacter
               characterId={ch.id}
@@ -638,6 +683,43 @@ export default function MyRoom({ player, nickname, onBack }) {
             )}
           </div>
         ))}
+
+        {/* 외출 중 캐릭터 말풍선 (문 위에 표시) */}
+        {!editMode && charStates.filter(ch => ch.hidden && ch.speech).map((ch) => {
+          const charName = CHARACTER_PALETTES[ch.id]?.name || '';
+          return (
+            <div key={`goout-speech-${ch.id}`} style={{
+              position: 'absolute',
+              left: ch.x,
+              top: ch.y - 70,
+              transform: 'translateX(-50%)',
+              background: 'linear-gradient(135deg, #ffe8cc, #ffd4a8)',
+              color: '#8b4513',
+              fontSize: 7,
+              fontFamily: "'Press Start 2P', monospace",
+              padding: '5px 10px 4px',
+              borderRadius: 8,
+              whiteSpace: 'nowrap',
+              zIndex: 9999,
+              pointerEvents: 'none',
+              animation: 'speechBubble 3s ease-in-out forwards',
+              boxShadow: '0 2px 8px rgba(200,100,0,0.3)',
+              border: '1.5px solid #e6a800',
+              textAlign: 'center',
+              lineHeight: 1.6,
+            }}>
+              <div style={{ fontSize: 5, color: '#996600', marginBottom: 1 }}>{charName}</div>
+              {ch.speech}
+              <div style={{
+                position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+                width: 0, height: 0,
+                borderLeft: '6px solid transparent',
+                borderRight: '6px solid transparent',
+                borderTop: '6px solid #ffd4a8',
+              }} />
+            </div>
+          );
+        })}
 
         {/* 가구 없을 때 */}
         {layout.length === 0 && !editMode && (
