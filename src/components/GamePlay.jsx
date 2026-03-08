@@ -637,9 +637,6 @@ export default function GamePlay({
             onClick={() => handleAnswer(choice)}
             disabled={gamePhase !== 'playing'}
           >
-            <span style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 4 }}>
-              {idx + 1}
-            </span>
             {choice}
           </button>
         ))}
