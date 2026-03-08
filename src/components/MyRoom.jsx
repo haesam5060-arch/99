@@ -266,6 +266,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const visitChannelRef = useRef(null);
   const hostChannelRef = useRef(null);
   const visitModeRef = useRef(null);
+  const lastBroadcastRef = useRef(0); // 호스트 전체상태 브로드캐스트 쓰로틀
 
   // ── 1:1 대결 ──
   const DUEL_TIME = 10; // 제한시간 10초
@@ -539,18 +540,29 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => { leaveVisitRoom(ch); hostChannelRef.current = null; };
   }, [nickname, equippedId]);
 
-  // ── 내 위치 브로드캐스트 (방문자: guest-move, 호스트: host-chars) ──
+  // ── 상태 브로드캐스트 (방문자: guest-move, 호스트: host-chars 전체상태) ──
   useEffect(() => {
     const eq = charStates.find(c => Number(c.id) === equippedId);
     if (!eq) return;
     const posData = { nickname, characterId: equippedId, x: eq.x, y: eq.y, flip: eq.flip };
-    // 방문 중이면 상대방 채널에 guest-move
+    // 방문 중이면 상대방 채널에 guest-move (내 위치만)
     if (visitMode === 'visiting' && visitChannelRef.current) {
       broadcastVisitPosition(visitChannelRef.current, 'guest-move', posData);
     }
-    // 호스트로서 내 채널에 host-chars (방문자에게 내 위치 전달)
+    // 호스트로서: 전체 캐릭터 상태를 방문자에게 전송 (200ms 쓰로틀)
     if (hostChannelRef.current && guests.length > 0) {
-      broadcastVisitPosition(hostChannelRef.current, 'host-chars', posData);
+      const now = Date.now();
+      if (now - lastBroadcastRef.current > 200) {
+        lastBroadcastRef.current = now;
+        const fullState = charStates.map(c => ({
+          id: c.id, x: c.x, y: c.y, action: c.action, flip: c.flip,
+          speech: c.speech, speechTimer: c.speechTimer, hidden: c.hidden,
+          interacting: c.interacting, riding: c.riding, inTail: c.inTail,
+        }));
+        broadcastVisitPosition(hostChannelRef.current, 'host-chars', {
+          type: 'full-state', chars: fullState, nickname, characterId: equippedId,
+        });
+      }
     }
   }, [charStates, visitMode, equippedId, nickname, guests.length]);
 
@@ -633,7 +645,42 @@ export default function MyRoom({ player, nickname, onBack }) {
           });
           return;
         }
-        // 호스트(방 주인) 캐릭터 위치 수신 → guests에 추가/업데이트
+        // 호스트 전체 캐릭터 상태 수신 → charStates 동기화
+        if (payload.type === 'full-state' && payload.chars) {
+          setCharStates(prev => {
+            // 내 장착 캐릭터는 내가 직접 조작하므로 유지
+            const myChar = prev.find(c => Number(c.id) === equippedId);
+            return payload.chars.map(hc => {
+              if (Number(hc.id) === equippedId && myChar) return myChar;
+              // 호스트에서 받은 상태로 교체
+              const existing = prev.find(c => c.id === hc.id);
+              return {
+                ...(existing || {}),
+                ...hc,
+                actionTimer: existing?.actionTimer || Date.now() + 5000,
+                speechTimer: hc.speechTimer || (existing?.speechTimer || Date.now() + 10000),
+              };
+            });
+          });
+          // 호스트 장착캐릭터 → guests에도 반영 (닉네임 표시용)
+          if (payload.nickname) {
+            const hostChar = payload.chars.find(c => Number(c.id) === payload.characterId);
+            if (hostChar) {
+              setGuests(prev => {
+                const exists = prev.find(g => g.nickname === payload.nickname);
+                if (exists) {
+                  return prev.map(g => g.nickname === payload.nickname
+                    ? { ...g, x: hostChar.x, y: hostChar.y, flip: hostChar.flip, characterId: payload.characterId }
+                    : g
+                  );
+                }
+                return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: hostChar.x, y: hostChar.y, flip: hostChar.flip, _isHost: true }];
+              });
+            }
+          }
+          return;
+        }
+        // 기존 단일 위치 수신 (fallback)
         if (payload.nickname && payload.x != null) {
           setGuests(prev => {
             const exists = prev.find(g => g.nickname === payload.nickname);
@@ -764,6 +811,35 @@ export default function MyRoom({ player, nickname, onBack }) {
     const TAIL_HIT_RANGE = 30; // 충돌 감지 범위
 
     const tick = () => {
+      const isVisiting = visitModeRef.current === 'visiting';
+
+      // 방문 중일 때: 내 장착 캐릭터만 직접 조작, AI는 호스트에서 수신한 상태 유지
+      if (isVisiting) {
+        setCharStates(prev => prev.map(ch => {
+          if (Number(ch.id) !== equippedId) return ch;
+          const keys = keysRef.current;
+          const joy = joystickRef.current;
+          let dx = 0, dy = 0;
+          if (keys.ArrowLeft) dx -= 1;
+          if (keys.ArrowRight) dx += 1;
+          if (keys.ArrowUp) dy -= 1;
+          if (keys.ArrowDown) dy += 1;
+          if (joy.active) { dx += joy.dx; dy += joy.dy; }
+          const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+          if (moving) {
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const nx = (dx / len) * PLAYER_SPEED;
+            const ny = (dy / len) * PLAYER_SPEED;
+            const newX = Math.max(10, Math.min(roomSize.w - 10, ch.x + nx));
+            const newY = Math.max(roomSize.h * 0.35, Math.min(roomSize.h * 0.92, ch.y + ny));
+            return { ...ch, x: newX, y: newY, flip: dx < 0 ? true : dx > 0 ? false : ch.flip, action: 'walk' };
+          }
+          return ch.action === 'walk' ? { ...ch, action: 'idle' } : ch;
+        }));
+      }
+
+      // 호스트일 때: 전체 AI 로직 실행
+      if (!isVisiting) {
       setCharStates(prev => {
         // 1단계: 장착 캐릭터 이동
         const updated = prev.map(ch => {
@@ -998,6 +1074,7 @@ export default function MyRoom({ player, nickname, onBack }) {
 
         return updated;
       });
+      } // end if (!isVisiting)
       // ── 축구공 물리 ──
       const BALL_FRICTION = 0.97;
       const BALL_MIN_SPEED = 0.05;
