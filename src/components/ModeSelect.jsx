@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { playClick } from '../utils/sound';
 
-export default function ModeSelect({ onSelect, onBack }) {
+export default function ModeSelect({ onSelect, onBack, onCoop }) {
   const [showCustom, setShowCustom] = useState(false);
   const [selectedDans, setSelectedDans] = useState([]);
 
@@ -117,6 +117,14 @@ export default function ModeSelect({ onSelect, onBack }) {
         </button>
         <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center', marginTop: -12 }}>
           선택한 단만 도전
+        </div>
+
+        <button className="pixel-btn" onClick={() => { playClick(); onCoop(); }}
+          style={{ background: '#8B5CF6', borderColor: '#a78bfa #6d28d9 #6d28d9 #a78bfa' }}>
+          협동 지키기
+        </button>
+        <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center', marginTop: -12 }}>
+          최대 4명 · 점수 2배!
         </div>
 
         <button

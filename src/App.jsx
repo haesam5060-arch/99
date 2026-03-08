@@ -7,6 +7,8 @@ import GamePlay from './components/GamePlay';
 import Shop from './components/Shop';
 import Ranking from './components/Ranking';
 import HelpScreen from './components/HelpScreen';
+import CoopLobby from './components/CoopLobby';
+import CoopGame from './components/CoopGame';
 import { getPlayer, updatePlayerScore } from './utils/storage';
 import { isOnline, getOnlinePlayer, updateOnlineScore } from './utils/supabase';
 import { setMuted } from './utils/sound';
@@ -17,6 +19,7 @@ function App() {
   const [player, setPlayer] = useState(null);
   const [gameMode, setGameMode] = useState(null);
   const [soundOn, setSoundOn] = useState(true);
+  const [coopData, setCoopData] = useState(null);
 
   const refreshPlayer = useCallback(async () => {
     if (!nickname) return;
@@ -100,6 +103,34 @@ function App() {
         <ModeSelect
           onSelect={handleModeSelect}
           onBack={() => setScreen('main')}
+          onCoop={() => setScreen('coopLobby')}
+        />
+      )}
+      {screen === 'coopLobby' && player && (
+        <CoopLobby
+          nickname={nickname}
+          player={player}
+          onStart={(data) => { setCoopData(data); setScreen('coopGame'); }}
+          onBack={() => setScreen('modeSelect')}
+        />
+      )}
+      {screen === 'coopGame' && player && coopData && (
+        <CoopGame
+          coopData={coopData}
+          player={player}
+          nickname={nickname}
+          onEnd={async (totalEarned) => {
+            if (totalEarned !== 0) {
+              if (isOnline()) {
+                await updateOnlineScore(nickname, totalEarned);
+              } else {
+                updatePlayerScore(nickname, totalEarned);
+              }
+            }
+            await refreshPlayer();
+            setCoopData(null);
+            setScreen('main');
+          }}
         />
       )}
       {screen === 'game' && player && (

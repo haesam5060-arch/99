@@ -148,7 +148,7 @@ export default function GamePlay({
         setTimeout(() => setFlashColor(null), 300);
         setParticles(generateParticles());
       }, 350);
-      setTimeout(() => setCharFrame('idle'), 500);
+      setTimeout(() => setCharFrame('idle'), 700);
 
       setStageScore((s) => s + score);
       setTotalSessionScore((s) => s + score);
@@ -601,8 +601,12 @@ export default function GamePlay({
           alignItems: 'center',
         }}>
           <div style={{
-            transition: 'transform 0.15s ease-out',
-            transform: charFrame === 'attack' ? 'scale(1.3) translateY(-8px)' : 'scale(1)',
+            transition: charFrame === 'attack'
+              ? 'transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1.2)'
+              : 'transform 0.15s ease-out',
+            transform: charFrame === 'attack' ? 'scale(5.2) translateY(-30px)' : 'scale(1)',
+            transformOrigin: 'center bottom',
+            zIndex: charFrame === 'attack' ? 100 : 1,
           }}>
             {player.equippedCharacter === SCHOOL_CARD_ID ? (
               <SchoolCardCharacter
