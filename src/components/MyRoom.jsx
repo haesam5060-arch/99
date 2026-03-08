@@ -9,21 +9,91 @@ const SCALE = 2;
 
 const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000], eat: [3000, 5000], eat_at: [4000, 6000], play: [3000, 5000], watch: [4000, 6000], music: [3000, 5000], ball: [2000, 4000] };
 
-const SPEECH_BUBBLES = [
-  '구구단 연습하자~', '오늘도 화이팅!', '심심해~', '놀아줘!',
+// 일반 대사 (닉네임 무관)
+const SPEECH_BUBBLES_GENERIC = [
+  '오늘도 화이팅!', '심심해~', '놀아줘!',
   '배고파...', '잠온다 zzZ', '같이 공부할까?', '나 천재인듯?',
-  '7x8은 56!', '여기 좋다~', '간식 먹고싶다', '숙제 다했어?',
+  '여기 좋다~', '간식 먹고싶다', '숙제 다했어?',
   '최고의 하루!', '으쌰으쌰!', '힘내자!', '뭐하고 놀까?',
+  '하품~ 아아앙~', '오늘 기분 좋다!', '나 배아파...',
+  '노래 부르자~', '산책 가고싶다~', '친구들 보고싶다',
+  '오늘 뭐하지?', '비 오나?', '해 떴다!',
+  '나 졸려...', '점프 점프!', '달리기 하자!',
+  '간식 시간이다~', '초콜릿 먹고싶다~', '아이스크림!',
+  '숨바꼭질 하자!', '가위바위보!', '하나 둘 셋!',
 ];
+
+// 주인 이름 포함 대사 (nickname 동적 삽입)
+const OWNER_SPEECH_TEMPLATES = [
+  (n) => `${n}아 놀아줘~`,
+  (n) => `${n} 최고!`,
+  (n) => `${n}아 같이 공부하자!`,
+  (n) => `${n}아 간식 줘~`,
+  (n) => `${n} 오늘도 파이팅!`,
+  (n) => `${n}아 사랑해~`,
+  (n) => `${n}이 제일 좋아!`,
+  (n) => `${n}아 나 심심해~`,
+  (n) => `${n}아 안녕!`,
+  (n) => `${n} 보고싶었어!`,
+  (n) => `${n}아 같이 놀자!`,
+  (n) => `${n}아 배고파~`,
+  (n) => `${n}아 숙제 했어?`,
+  (n) => `${n}아 나 칭찬해줘!`,
+  (n) => `${n} 대단해!`,
+];
+
+// 구구단 퀴즈 생성
+function generateQuiz() {
+  const a = 2 + Math.floor(Math.random() * 8); // 2~9
+  const b = 1 + Math.floor(Math.random() * 9); // 1~9
+  const answer = a * b;
+  const quizTypes = [
+    `${a}x${b}=? 정답은 ${answer}!`,
+    `${a} 곱하기 ${b}은? ${answer}!`,
+    `문제! ${a}x${b}은~?`,
+    `${a}x${b}=${answer} 맞지?`,
+    `퀴즈! ${a}x${b}=?`,
+    `${a}단! ${a}x${b}=${answer}!`,
+    `${answer}=${a}x${b} 알지?`,
+    `나 알아! ${a}x${b}=${answer}!`,
+  ];
+  return quizTypes[Math.floor(Math.random() * quizTypes.length)];
+}
+
+// 구구단 관련 대사
+const GUGUDAN_SPEECH = [
+  '구구단 연습하자~', '구구단은 재밌어!',
+  '2x3=6 쉽지!', '9x9=81 어렵다!',
+  '구구단 마스터가 될거야!', '곱셈은 내가 최고!',
+  '7단이 젤 어려워~', '외우면 천재!',
+];
+
+// 종합 말풍선 생성 함수
+function getRandomSpeech(nickname) {
+  const roll = Math.random();
+  if (roll < 0.25) {
+    // 25% 주인 이름 대사
+    const tmpl = OWNER_SPEECH_TEMPLATES[Math.floor(Math.random() * OWNER_SPEECH_TEMPLATES.length)];
+    return tmpl(nickname);
+  } else if (roll < 0.45) {
+    // 20% 구구단 퀴즈/대사
+    return Math.random() < 0.6
+      ? generateQuiz()
+      : GUGUDAN_SPEECH[Math.floor(Math.random() * GUGUDAN_SPEECH.length)];
+  } else {
+    // 55% 일반 대사
+    return SPEECH_BUBBLES_GENERIC[Math.floor(Math.random() * SPEECH_BUBBLES_GENERIC.length)];
+  }
+}
 
 // 상호작용별 대사
 const INTERACTION_SPEECH = {
-  eat: ['배고프다~', '간식 꺼내먹어야지~', '뭐 먹을까~', '냉장고 열어보자!'],
-  eat_at: ['냠냠 맛있다!', '꿀맛이다~', '잘 먹겠습니다!', '배부르다~', '맛있는 간식!'],
-  play: ['부릉부릉~', '출발이다!', '장난감 트럭 최고!', '배달 왔어요~', '삐뽀삐뽀!'],
-  watch: ['만화 보자~', 'TV 볼 시간이다!', '재밌는 거 하고있다~', '꺄~ 재밌어!', '이 프로 좋아!'],
-  music: ['도레미파솔~', '라시도~!', '피아노 연습!', '멜로디~', '나 천재 피아니스트!'],
-  ball: ['슛! 골인~!', '패스 패스!', '드리블~', '여기로 차!', '골~~~~!'],
+  eat: ['배고프다~', '간식 꺼내먹어야지~', '뭐 먹을까~', '냉장고 열어보자!', '맛있는 거 있을까?', '우유 마시고싶다~'],
+  eat_at: ['냠냠 맛있다!', '꿀맛이다~', '잘 먹겠습니다!', '배부르다~', '맛있는 간식!', '한 입만 더~', '이거 진짜 맛있어!', '배 터지겠다~'],
+  play: ['부릉부릉~', '출발이다!', '장난감 트럭 최고!', '배달 왔어요~', '삐뽀삐뽀!', '경찰차다!', '소방차 출동!', '짐 싣는 중~'],
+  watch: ['만화 보자~', 'TV 볼 시간이다!', '재밌는 거 하고있다~', '꺄~ 재밌어!', '이 프로 좋아!', '다음 편은 언제?', '주인공 멋져!', '한 편만 더~'],
+  music: ['도레미파솔~', '라시도~!', '피아노 연습!', '멜로디~', '나 천재 피아니스트!', '딩동댕~', '작곡 중이야!', '콩쿠르 나갈거야!'],
+  ball: ['슛! 골인~!', '패스 패스!', '드리블~', '여기로 차!', '골~~~~!', '나 메시다!', '헤딩슛!', '월드컵 우승!'],
 };
 
 function randRange(min, max) {
@@ -315,10 +385,10 @@ export default function MyRoom({ player, nickname, onBack }) {
           return { ...ch, speech: null, speechTimer: now + randRange(5000, 12000) };
         }
         if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep') {
-          // 30% 확률로 기술명, 70% 확률로 일반 대사
-          const msg = Math.random() < 0.3
+          // 20% 확률로 기술명, 80% 확률로 종합 대사 (주인 이름, 구구단 퀴즈 포함)
+          const msg = Math.random() < 0.2
             ? getRandomSkill(ch.id)
-            : SPEECH_BUBBLES[Math.floor(Math.random() * SPEECH_BUBBLES.length)];
+            : getRandomSpeech(nickname);
           return { ...ch, speech: msg, speechTimer: now + 3000 };
         }
         return ch;
