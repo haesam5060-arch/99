@@ -177,7 +177,9 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [layout, setLayout] = useState(() => {
     try {
       const saved = localStorage.getItem(`room_layout_${nickname}`);
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      // 유효하지 않은 가구 ID 필터링 (크래시 방지)
+      return Array.isArray(parsed) ? parsed.filter(item => item && item.id && FURNITURE_DEFS[item.id]) : [];
     } catch { return []; }
   });
   const [ownedFurniture, setOwnedFurniture] = useState(() => {
@@ -336,8 +338,9 @@ export default function MyRoom({ player, nickname, onBack }) {
           localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(data.room_furniture));
         }
         if (data.room_layout?.length > 0) {
-          setLayout(data.room_layout);
-          localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(data.room_layout));
+          const safeLayout = data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]);
+          setLayout(safeLayout);
+          localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(safeLayout));
         }
       }
     })();
@@ -487,7 +490,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     // 방문 모드 ref를 먼저 설정하여 레이아웃 저장 방지
     visitModeRef.current = 'visiting';
     // 상대방 방 레이아웃 로드
-    if (data.room_layout?.length > 0) setLayout(data.room_layout);
+    if (data.room_layout?.length > 0) setLayout(data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]));
     // 상대방 보유 캐릭터로 교체 (내 장착 캐릭터만 포함)
     const hostChars = data.characters || [0];
     const roomChars = hostChars.includes(equippedId)
@@ -1091,33 +1094,8 @@ export default function MyRoom({ player, nickname, onBack }) {
     }));
   };
 
-  // 디버깅: 렌더 시 크래시 감지
-  let renderError = null;
-  try {
-    // 렌더링 전 검증
-    if (!player) renderError = 'player is null';
-    if (!nickname) renderError = 'nickname is empty';
-    if (!Array.isArray(layout)) renderError = 'layout is not array: ' + typeof layout;
-    if (!Array.isArray(charStates)) renderError = 'charStates is not array';
-  } catch (e) {
-    renderError = e.message;
-  }
-
-  if (renderError) {
-    return (
-      <div style={{ color: '#ff0', padding: 40, fontSize: 16, fontFamily: 'monospace', zIndex: 99999, position: 'relative' }}>
-        <div style={{ color: '#f44', fontSize: 20, marginBottom: 10 }}>MyRoom 렌더 에러</div>
-        <div>{renderError}</div>
-        <button onClick={onBack} style={{ marginTop: 20, padding: '10px 20px', fontSize: 14 }}>돌아가기</button>
-      </div>
-    );
-  }
-
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
-      <div style={{ color: '#0f0', fontSize: 8, fontFamily: 'monospace', marginBottom: 4 }}>
-        [DEBUG] MyRoom OK - chars:{charStates.length} layout:{layout.length} eq:{equippedId}
-      </div>
       <style>{`
         @keyframes quizShake {
           0%, 100% { transform: translateX(0); }
