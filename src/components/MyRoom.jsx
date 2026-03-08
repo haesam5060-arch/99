@@ -695,7 +695,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         if (ch.speech && now > ch.speechTimer) {
           return { ...ch, speech: null, speechTimer: now + randRange(10000, 24000) };
         }
-        if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep') {
+        if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep' && Number(ch.id) !== equippedId) {
           // 20% 확률로 기술명, 80% 확률로 종합 대사 (주인 이름, 구구단 퀴즈 포함)
           const msg = Math.random() < 0.2
             ? getRandomSkill(ch.id)
