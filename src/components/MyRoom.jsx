@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
-import { FURNITURE_DEFS } from './Shop';
+import { FURNITURE_DEFS, FURNITURE_TOOLTIPS } from './Shop';
 import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore } from '../utils/supabase';
 import { updatePlayerScore } from '../utils/storage';
 
@@ -1441,6 +1441,29 @@ export default function MyRoom({ player, nickname, onBack }) {
           40% { opacity: 1; }
           100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(0); }
         }
+        .furniture-tooltip-wrapper { position: relative; }
+        .furniture-tooltip-wrapper .furniture-tooltip {
+          display: none;
+          position: absolute;
+          bottom: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0,0,0,0.88);
+          color: #fff;
+          font-size: 7px;
+          font-family: 'Press Start 2P', monospace;
+          padding: 5px 8px;
+          border-radius: 4px;
+          border: 1px solid var(--gold);
+          white-space: nowrap;
+          z-index: 9999;
+          pointer-events: none;
+          line-height: 1.6;
+          text-align: center;
+        }
+        .furniture-tooltip-wrapper:hover .furniture-tooltip {
+          display: block;
+        }
       `}</style>
 
       {/* 헤더 */}
@@ -1557,7 +1580,16 @@ export default function MyRoom({ player, nickname, onBack }) {
                 touchAction: 'none',
               }}
             >
-              <FurnitureCanvas furnitureId={item.id} scale={SCALE} isOpen={item.id === 'door' && doorOpen} />
+              <div className="furniture-tooltip-wrapper">
+                <FurnitureCanvas furnitureId={item.id} scale={SCALE} isOpen={item.id === 'door' && doorOpen} />
+                {!editMode && f.interaction && FURNITURE_TOOLTIPS[item.id] && (
+                  <div className="furniture-tooltip">
+                    {FURNITURE_TOOLTIPS[item.id].split('\n').map((line, i) => (
+                      <span key={i}>{line}{i < FURNITURE_TOOLTIPS[item.id].split('\n').length - 1 && <br />}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
               {editMode && (
                 <>
                   <div style={{
