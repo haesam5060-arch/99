@@ -195,8 +195,11 @@ export default function MyRoom({ player, nickname, onBack }) {
   const charStatesRef = useRef([]); // 축구공 물리용 최신 캐릭터 상태 참조
   const roomRef = useRef(null);
   const animFrameRef = useRef(null);
+  const keysRef = useRef({}); // 키보드 입력 상태
+  const joystickRef = useRef({ active: false, dx: 0, dy: 0 }); // 모바일 조이스틱
 
   const ownedCharacters = player.characters || [0];
+  const equippedId = player.equippedCharacter ?? ownedCharacters[0];
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
@@ -236,6 +239,20 @@ export default function MyRoom({ player, nickname, onBack }) {
       saveRoomData(nickname, layout, furniture);
     }
   }, [layout, nickname]);
+
+  // 키보드 입력
+  useEffect(() => {
+    const onDown = (e) => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        keysRef.current[e.key] = true;
+      }
+    };
+    const onUp = (e) => { keysRef.current[e.key] = false; };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+  }, []);
 
   // 바닥 영역 (실제 px) - 벽 30% 아래부터 92%까지
   const floorTop = roomSize.h * 0.35;
@@ -290,8 +307,31 @@ export default function MyRoom({ player, nickname, onBack }) {
   useEffect(() => {
     if (editMode) return;
 
+    const PLAYER_SPEED = 1.5;
     const tick = () => {
       setCharStates(prev => prev.map(ch => {
+        // 장착 캐릭터는 플레이어가 직접 조작
+        if (ch.id === equippedId) {
+          const keys = keysRef.current;
+          const joy = joystickRef.current;
+          let dx = 0, dy = 0;
+          if (keys.ArrowLeft) dx -= 1;
+          if (keys.ArrowRight) dx += 1;
+          if (keys.ArrowUp) dy -= 1;
+          if (keys.ArrowDown) dy += 1;
+          // 조이스틱 입력 합산
+          if (joy.active) { dx += joy.dx; dy += joy.dy; }
+          const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+          if (moving) {
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const nx = (dx / len) * PLAYER_SPEED;
+            const ny = (dy / len) * PLAYER_SPEED;
+            const newX = Math.max(10, Math.min(roomSize.w - 10, ch.x + nx));
+            const newY = Math.max(roomSize.h * 0.35, Math.min(roomSize.h * 0.92, ch.y + ny));
+            return { ...ch, x: newX, y: newY, flip: dx < 0 ? true : dx > 0 ? false : ch.flip, action: 'walk' };
+          }
+          return ch.action === 'walk' ? { ...ch, action: 'idle' } : ch;
+        }
         const now = Date.now();
         if (now < ch.actionTimer) {
           if (ch.action === 'walk' && ch.targetX != null) {
@@ -721,6 +761,17 @@ export default function MyRoom({ player, nickname, onBack }) {
               sleeping={ch.action === 'sleep'}
               scale={SCALE}
             />
+            {/* 장착 캐릭터 표시 화살표 */}
+            {ch.id === equippedId && (
+              <div style={{
+                position: 'absolute', left: ch.x, top: ch.y - 42,
+                transform: 'translateX(-50%)',
+                fontSize: 10, color: '#ffcc00',
+                animation: 'zzzFloat 1.5s ease-in-out infinite',
+                zIndex: 9998, pointerEvents: 'none',
+                textShadow: '0 0 4px rgba(255,200,0,0.8)',
+              }}>▼</div>
+            )}
             {ch.speech && (() => {
               const isSkill = ch.speech.endsWith('!');
               const charName = CHARACTER_PALETTES[ch.id]?.name || '';
@@ -831,6 +882,53 @@ export default function MyRoom({ player, nickname, onBack }) {
         )}
       </div>
 
+      {/* 모바일 조이스틱 */}
+      {!editMode && (
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            joystickRef.current = { active: true, cx, cy, dx: 0, dy: 0, id: e.pointerId };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (!joystickRef.current.active) return;
+            const { cx, cy } = joystickRef.current;
+            const maxR = 20;
+            let dx = e.clientX - cx;
+            let dy = e.clientY - cy;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > maxR) { dx = (dx / dist) * maxR; dy = (dy / dist) * maxR; }
+            joystickRef.current.dx = dx / maxR;
+            joystickRef.current.dy = dy / maxR;
+          }}
+          onPointerUp={() => { joystickRef.current = { active: false, dx: 0, dy: 0 }; }}
+          onPointerCancel={() => { joystickRef.current = { active: false, dx: 0, dy: 0 }; }}
+          style={{
+            marginTop: 8, width: 70, height: 70, borderRadius: '50%',
+            background: 'radial-gradient(circle, #2a2a6e, #1a1a4e)',
+            border: '2px solid #4a4a8a',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            touchAction: 'none', cursor: 'pointer', userSelect: 'none',
+            position: 'relative',
+          }}
+        >
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%',
+            background: 'radial-gradient(circle, #6a6aae, #4a4a8e)',
+            border: '1px solid #8a8abe',
+          }} />
+          <div style={{
+            position: 'absolute', bottom: -16, fontSize: 7, color: '#666',
+            fontFamily: "'Press Start 2P', monospace", whiteSpace: 'nowrap',
+          }}>
+            조이스틱 / 방향키
+          </div>
+        </div>
+      )}
+
       {/* 편집 모드 */}
       {editMode && (
         <div style={{ marginTop: 10, textAlign: 'center', width: '100%' }}>
@@ -884,11 +982,13 @@ export default function MyRoom({ player, nickname, onBack }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {ownedCharacters.map((id) => (
               <div key={id} style={{
-                background: '#1a1a5e', borderRadius: 4, padding: '2px 6px',
-                fontSize: 8, color: '#ccc',
+                background: id === equippedId ? '#3a2a0e' : '#1a1a5e',
+                border: id === equippedId ? '1px solid #ffcc00' : '1px solid transparent',
+                borderRadius: 4, padding: '2px 6px',
+                fontSize: 8, color: id === equippedId ? '#ffcc00' : '#ccc',
                 fontFamily: "'Press Start 2P', monospace",
               }}>
-                {CHARACTER_PALETTES[id]?.name || `#${id}`}
+                {id === equippedId ? '▶ ' : ''}{CHARACTER_PALETTES[id]?.name || `#${id}`}
               </div>
             ))}
           </div>
