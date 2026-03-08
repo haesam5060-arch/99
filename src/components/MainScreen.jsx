@@ -51,7 +51,10 @@ export default function MainScreen({ player, nickname, onNavigate }) {
           게임 시작
         </button>
         <button className="pixel-btn" onClick={() => handleNav('shop')}>
-          캐릭터 상점
+          상점
+        </button>
+        <button className="pixel-btn" onClick={() => handleNav('myroom')}>
+          내 방
         </button>
         <button className="pixel-btn" onClick={() => handleNav('ranking')}>
           랭킹

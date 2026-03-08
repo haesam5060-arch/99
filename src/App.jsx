@@ -9,6 +9,7 @@ import Ranking from './components/Ranking';
 import HelpScreen from './components/HelpScreen';
 import CoopLobby from './components/CoopLobby';
 import CoopGame from './components/CoopGame';
+import MyRoom from './components/MyRoom';
 import { getPlayer, updatePlayerScore } from './utils/storage';
 import { isOnline, getOnlinePlayer, updateOnlineScore } from './utils/supabase';
 import { setMuted } from './utils/sound';
@@ -157,6 +158,14 @@ function App() {
       )}
       {screen === 'help' && (
         <HelpScreen onBack={() => setScreen('main')} />
+      )}
+      {screen === 'myroom' && player && (
+        <MyRoom
+          player={player}
+          nickname={nickname}
+          onBack={async () => { await refreshPlayer(); setScreen('main'); }}
+          onUpdate={handleShopUpdate}
+        />
       )}
 
       <div style={{

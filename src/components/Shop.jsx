@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { CHARACTER_PALETTES } from '../data/characters';
-import { purchaseCharacter, equipCharacter, sellCharacter } from '../utils/storage';
-import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName, sellOnlineCharacter } from '../utils/supabase';
-import { playClick, playPurchase } from '../utils/sound';
+import { purchaseCharacter, equipCharacter, sellCharacter, updatePlayerScore } from '../utils/storage';
+import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName, sellOnlineCharacter, updateOnlineScore } from '../utils/supabase';
+import { playClick, playPurchase, playWrong } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
 import { containsProfanity } from '../utils/profanityFilter';
@@ -48,18 +48,240 @@ function getPrice(id) {
   return 1000;
 }
 
+// ── 가구 정의 ──
+const FURNITURE_PRICE = 1000;
+const FURNITURE_DEFS = {
+  bed: { name: '침대', w: 48, h: 12,
+    colors: { 1: '#5c3a1e', 2: '#7a4f2e', 3: '#8b6340', 4: '#c4a882', 5: '#e8d5b5', 6: '#4a7abc', 7: '#6a9fd8' },
+    sprite: [
+      [0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+      [0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0],
+      [0,0,0,0,1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0,0,0,0],
+      [0,0,0,1,2,3,3,4,4,4,4,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0,0,0],
+      [0,0,1,2,3,3,4,5,5,5,5,5,5,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0,0],
+      [0,1,2,3,3,3,4,5,5,5,5,5,5,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0],
+      [1,2,3,3,3,3,4,5,5,5,5,5,5,4,3,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,3,3,3,3,2,1],
+      [1,2,3,3,3,3,4,4,4,4,4,4,4,4,3,6,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,6,3,3,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,6,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,6,3,3,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,6,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,6,3,3,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,3,3,3,3,2,1],
+      [1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1],
+    ],
+  },
+  desk: { name: '책상', w: 40, h: 14,
+    colors: { 1: '#6b4226', 2: '#8b5a3a', 3: '#3a3a5c', 4: '#4a4a6c' },
+    sprite: [
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+      [1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1],
+      [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,4,3,3,3,3,3,3,3,3,3,3,3,3,4,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,4,3,3,3,3,3,3,3,3,3,3,3,3,4,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+      [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+    ],
+  },
+  chair: { name: '의자', w: 20, h: 15,
+    colors: { 1: '#6b4226', 2: '#8b5a3a', 3: '#a87050', 4: '#cc4444' },
+    sprite: [
+      [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+      [0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0],
+      [0,0,0,1,2,3,3,3,3,3,3,3,3,3,3,2,1,0,0,0],
+      [0,0,0,1,2,3,3,3,3,3,3,3,3,3,3,2,1,0,0,0],
+      [0,0,0,1,2,3,3,3,3,3,3,3,3,3,3,2,1,0,0,0],
+      [0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0],
+      [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+      [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0],
+      [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+      [0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0],
+      [1,2,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,2,1],
+      [1,2,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,2,1],
+      [0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],
+      [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],
+    ],
+  },
+  bookshelf: { name: '책장', w: 32, h: 17,
+    colors: { 1: '#5c3a1e', 2: '#7a4f2e', 3: '#cc3333', 4: '#3366aa', 5: '#33aa55' },
+    sprite: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+      [1,2,3,3,4,4,5,5,3,3,0,0,4,4,5,5,3,3,4,4,0,0,5,5,3,3,4,4,5,5,2,1],
+      [1,2,3,3,4,4,5,5,3,3,0,0,4,4,5,5,3,3,4,4,0,0,5,5,3,3,4,4,5,5,2,1],
+      [1,2,3,3,4,4,5,5,3,3,0,0,4,4,5,5,3,3,4,4,0,0,5,5,3,3,4,4,5,5,2,1],
+      [1,2,3,3,4,4,5,5,3,3,0,0,4,4,5,5,3,3,4,4,0,0,5,5,3,3,4,4,5,5,2,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,2,5,5,3,3,0,0,4,4,5,5,3,3,0,0,5,5,3,3,4,4,0,0,3,3,5,5,4,4,2,1],
+      [1,2,5,5,3,3,0,0,4,4,5,5,3,3,0,0,5,5,3,3,4,4,0,0,3,3,5,5,4,4,2,1],
+      [1,2,5,5,3,3,0,0,4,4,5,5,3,3,0,0,5,5,3,3,4,4,0,0,3,3,5,5,4,4,2,1],
+      [1,2,5,5,3,3,0,0,4,4,5,5,3,3,0,0,5,5,3,3,4,4,0,0,3,3,5,5,4,4,2,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,2,4,4,0,0,5,5,3,3,4,4,0,0,5,5,4,4,0,0,3,3,5,5,4,4,0,0,3,3,2,1],
+      [1,2,4,4,0,0,5,5,3,3,4,4,0,0,5,5,4,4,0,0,3,3,5,5,4,4,0,0,3,3,2,1],
+      [1,2,4,4,0,0,5,5,3,3,4,4,0,0,5,5,4,4,0,0,3,3,5,5,4,4,0,0,3,3,2,1],
+      [1,2,4,4,0,0,5,5,3,3,4,4,0,0,5,5,4,4,0,0,3,3,5,5,4,4,0,0,3,3,2,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+  },
+  rug: { name: '러그', w: 48, h: 10,
+    colors: { 1: '#8b2252', 2: '#a0336a', 3: '#cc4488', 4: '#dd6699' },
+    sprite: [
+      [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+      [0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0],
+      [1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,3,2,1],
+      [1,2,3,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3,2,1],
+      [1,2,3,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1],
+      [0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0],
+      [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    ],
+  },
+  windowF: { name: '창문', w: 28, h: 13, wallMount: true,
+    colors: { 1: '#e8e8e8', 2: '#b0b0b0', 3: '#88ccee', 4: '#aaddff', 5: '#ffffff' },
+    sprite: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,2,1,1,2,3,3,3,3,3,3,3,3,3,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,3,2,1,1,2,3,4,4,4,4,4,4,4,4,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,3,2,1,1,2,3,4,4,4,4,4,4,4,4,3,2,1],
+      [1,2,3,4,4,5,5,4,4,4,4,3,2,1,1,2,3,4,4,4,5,5,4,4,4,3,2,1],
+      [1,2,3,4,5,5,5,5,4,4,4,3,2,1,1,2,3,4,4,5,5,5,5,4,4,3,2,1],
+      [1,2,3,4,4,5,5,4,4,4,4,3,2,1,1,2,3,4,4,4,5,5,4,4,4,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,3,2,1,1,2,3,4,4,4,4,4,4,4,4,3,2,1],
+      [1,2,3,4,4,4,4,4,4,4,4,3,2,1,1,2,3,4,4,4,4,4,4,4,4,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,2,1,1,2,3,3,3,3,3,3,3,3,3,3,2,1],
+      [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+  },
+  lamp: { name: '스탠드', w: 12, h: 15,
+    colors: { 1: '#ffd700', 2: '#ffee88', 3: '#ffffcc', 4: '#888888' },
+    sprite: [
+      [0,0,0,1,1,1,1,1,1,0,0,0],
+      [0,0,1,2,2,2,2,2,2,1,0,0],
+      [0,1,2,3,3,3,3,3,3,2,1,0],
+      [0,1,2,3,3,3,3,3,3,2,1,0],
+      [0,1,2,3,3,3,3,3,3,2,1,0],
+      [0,0,1,2,2,2,2,2,2,1,0,0],
+      [0,0,0,1,1,1,1,1,1,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,0,4,4,0,0,0,0,0],
+      [0,0,0,0,4,4,4,4,0,0,0,0],
+    ],
+  },
+  clock: { name: '시계', w: 14, h: 14, wallMount: true,
+    colors: { 1: '#8b6340', 2: '#ffd700', 3: '#ffffff', 4: '#333333' },
+    sprite: [
+      [0,0,0,0,0,1,1,1,1,0,0,0,0,0],
+      [0,0,0,1,1,2,2,2,2,1,1,0,0,0],
+      [0,0,1,2,3,3,3,3,3,3,2,1,0,0],
+      [0,1,2,3,3,3,3,3,3,3,3,2,1,0],
+      [0,1,3,3,3,3,4,3,3,3,3,3,1,0],
+      [1,2,3,3,3,3,4,3,3,3,3,3,2,1],
+      [1,2,3,3,3,3,4,4,4,3,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,2,1],
+      [1,2,3,3,3,3,3,3,3,3,3,3,2,1],
+      [0,1,3,3,3,3,3,3,3,3,3,3,1,0],
+      [0,1,2,3,3,3,3,3,3,3,3,2,1,0],
+      [0,0,1,2,3,3,3,3,3,3,2,1,0,0],
+      [0,0,0,1,1,2,2,2,2,1,1,0,0,0],
+      [0,0,0,0,0,1,1,1,1,0,0,0,0,0],
+    ],
+  },
+  plant: { name: '화분', w: 14, h: 18,
+    colors: { 1: '#228b22', 2: '#32cd32', 3: '#8b4513', 4: '#a0522d', 5: '#006400' },
+    sprite: [
+      [0,0,0,0,0,0,2,2,0,0,0,0,0,0],
+      [0,0,0,0,0,2,1,1,2,0,0,0,0,0],
+      [0,0,0,0,2,1,5,5,1,2,0,0,0,0],
+      [0,0,2,2,1,5,5,5,5,1,2,2,0,0],
+      [0,2,1,1,5,5,1,1,5,5,1,1,2,0],
+      [0,2,1,5,5,1,0,0,1,5,5,1,2,0],
+      [0,0,2,1,1,0,0,0,0,1,1,2,0,0],
+      [0,0,0,2,0,0,1,1,0,0,2,0,0,0],
+      [0,0,0,0,0,0,1,1,0,0,0,0,0,0],
+      [0,0,0,0,0,0,1,1,0,0,0,0,0,0],
+      [0,0,0,0,3,3,3,3,3,3,0,0,0,0],
+      [0,0,0,3,4,4,4,4,4,4,3,0,0,0],
+      [0,0,3,4,4,4,4,4,4,4,4,3,0,0],
+      [0,0,3,4,4,4,4,4,4,4,4,3,0,0],
+      [0,0,3,4,4,4,4,4,4,4,4,3,0,0],
+      [0,0,3,4,4,4,4,4,4,4,4,3,0,0],
+      [0,0,0,3,4,4,4,4,4,4,3,0,0,0],
+      [0,0,0,0,3,3,3,3,3,3,0,0,0,0],
+    ],
+  },
+};
+
+// Export for MyRoom to use
+export { FURNITURE_DEFS, FURNITURE_PRICE };
+
+const FURNITURE_IDS = Object.keys(FURNITURE_DEFS);
+
+function FurnitureCanvas({ furnitureId, scale = 2 }) {
+  const canvasRef = useRef(null);
+  const f = FURNITURE_DEFS[furnitureId];
+
+  useEffect(() => {
+    if (!canvasRef.current || !f) return;
+    const ctx = canvasRef.current.getContext('2d');
+    const w = f.w * scale;
+    const h = f.h * scale;
+    canvasRef.current.width = w;
+    canvasRef.current.height = h;
+    ctx.clearRect(0, 0, w, h);
+    f.sprite.forEach((row, y) => {
+      row.forEach((val, x) => {
+        if (val && f.colors[val]) {
+          ctx.fillStyle = f.colors[val];
+          ctx.fillRect(x * scale, y * scale, scale, scale);
+        }
+      });
+    });
+  }, [furnitureId, scale]);
+
+  if (!f) return null;
+  const w = f.w * scale;
+  const h = f.h * scale;
+  return <canvas ref={canvasRef} width={w} height={h} style={{ width: w, height: h, imageRendering: 'pixelated' }} />;
+}
+
 export default function Shop({ player, nickname, onUpdate, onBack }) {
-  const [confirm, setConfirm] = useState(null); // { type: 'buy'|'sell', id }
+  const [tab, setTab] = useState('character'); // 'character' | 'furniture'
+  const [confirm, setConfirm] = useState(null);
   const [loading, setLoading] = useState(false);
   const [schoolInput, setSchoolInput] = useState('');
   const [schoolError, setSchoolError] = useState('');
+  const [message, setMessage] = useState(null);
+  const [ownedFurniture, setOwnedFurniture] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`room_furniture_${nickname}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
 
+  const showMessage = (text) => {
+    setMessage(text);
+    setTimeout(() => setMessage(null), 1500);
+  };
+
+  // ── 캐릭터 관련 ──
   const handleBuy = (id) => {
     playClick();
-    if (id === SCHOOL_CARD_ID) {
-      setSchoolInput('');
-      setSchoolError('');
-    }
+    if (id === SCHOOL_CARD_ID) { setSchoolInput(''); setSchoolError(''); }
     setConfirm({ type: 'buy', id });
   };
 
@@ -87,9 +309,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
       const result = await purchaseOnlineCharacter(nickname, id, price);
       if (result.success) {
         playPurchase();
-        if (isSchoolCard) {
-          await updateSchoolName(nickname, schoolInput.trim());
-        }
+        if (isSchoolCard) await updateSchoolName(nickname, schoolInput.trim());
         onUpdate({
           score: result.player.score,
           characters: result.player.characters,
@@ -165,6 +385,48 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     }
   };
 
+  // ── 가구 구매 ──
+  const handleBuyFurniture = async (furnitureId) => {
+    if (ownedFurniture.includes(furnitureId)) {
+      showMessage('이미 보유중!');
+      return;
+    }
+    if (player.score < FURNITURE_PRICE) {
+      playWrong();
+      showMessage('포인트가 부족합니다!');
+      return;
+    }
+
+    playPurchase();
+
+    if (isOnline()) {
+      await updateOnlineScore(nickname, -FURNITURE_PRICE);
+    } else {
+      updatePlayerScore(nickname, -FURNITURE_PRICE);
+    }
+
+    const newOwned = [...ownedFurniture, furnitureId];
+    setOwnedFurniture(newOwned);
+    localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(newOwned));
+
+    // 자동 배치
+    const f = FURNITURE_DEFS[furnitureId];
+    const ROOM_W = 300, ROOM_H = 200, SCALE = 2;
+    try {
+      const saved = localStorage.getItem(`room_layout_${nickname}`);
+      const layout = saved ? JSON.parse(saved) : [];
+      layout.push({
+        id: furnitureId,
+        x: f.wallMount ? 100 + Math.random() * 80 : 20 + Math.random() * (ROOM_W - f.w * SCALE - 40),
+        y: f.wallMount ? 10 + Math.random() * 30 : ROOM_H - f.h * SCALE - 5,
+      });
+      localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
+    } catch {}
+
+    onUpdate({ ...player, score: player.score - FURNITURE_PRICE });
+    showMessage(`${f.name} 구매 완료!`);
+  };
+
   const characters = Object.entries(CHARACTER_PALETTES).map(([id, data]) => ({
     id: Number(id),
     name: data.name,
@@ -181,30 +443,65 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 20 }}>
       <div style={{ fontSize: 14, color: 'var(--gold)', marginBottom: 6, textShadow: '2px 2px 0 #b8860b' }}>
-        캐릭터 상점
+        상점
       </div>
-      <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 20 }}>
+      <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 12 }}>
         {player.score.toLocaleString()} P
       </div>
 
-      {/* Popup */}
+      {/* 탭 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, width: '100%' }}>
+        <button
+          onClick={() => { playClick(); setTab('character'); }}
+          style={{
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: 4, cursor: 'pointer',
+            background: tab === 'character' ? '#333388' : '#1a1a3e',
+            color: tab === 'character' ? '#fff' : '#888',
+            fontSize: 11, fontFamily: "'Press Start 2P', monospace",
+            borderBottom: tab === 'character' ? '2px solid var(--gold)' : '2px solid transparent',
+          }}
+        >
+          캐릭터
+        </button>
+        <button
+          onClick={() => { playClick(); setTab('furniture'); }}
+          style={{
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: 4, cursor: 'pointer',
+            background: tab === 'furniture' ? '#333388' : '#1a1a3e',
+            color: tab === 'furniture' ? '#fff' : '#888',
+            fontSize: 11, fontFamily: "'Press Start 2P', monospace",
+            borderBottom: tab === 'furniture' ? '2px solid var(--gold)' : '2px solid transparent',
+          }}
+        >
+          가구
+        </button>
+      </div>
+
+      {/* 메시지 */}
+      {message && (
+        <div style={{
+          position: 'fixed', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
+          background: '#1a1a5e', border: '2px solid var(--gold)',
+          borderRadius: 8, padding: '12px 24px',
+          fontSize: 12, color: '#fff', zIndex: 9999,
+          fontFamily: "'Press Start 2P', monospace",
+          textShadow: '1px 1px 0 #000',
+        }}>
+          {message}
+        </div>
+      )}
+
+      {/* 캐릭터 구매 팝업 */}
       {isPopupOpen && (
         <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 100,
         }}>
           <div style={{
-            background: '#141450',
-            border: '4px solid #6666aa',
-            padding: 30,
-            textAlign: 'center',
-            maxWidth: 320,
-            width: '90%',
+            background: '#141450', border: '4px solid #6666aa',
+            padding: 30, textAlign: 'center', maxWidth: 320, width: '90%',
           }}>
             {popupId === SCHOOL_CARD_ID ? (
               <SchoolCardCharacter schoolName={popupType === 'buy' ? (schoolInput || '학교') : (player.schoolName || '학교')} pixelSize={4} />
@@ -225,8 +522,7 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
             ) : popupId === SCHOOL_CARD_ID ? (
               <>
                 <div style={{ fontSize: 10, margin: '16px 0 10px', lineHeight: 2 }}>
-                  학교 이름을 입력하세요<br />
-                  (1~4글자)
+                  학교 이름을 입력하세요<br />(1~4글자)
                 </div>
                 <input
                   type="text"
@@ -237,15 +533,10 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                   autoFocus
                   style={{
                     fontFamily: "'Press Start 2P', monospace",
-                    fontSize: 14,
-                    padding: '10px 16px',
-                    background: '#0a0a2e',
-                    border: '3px solid #6666aa',
-                    color: 'white',
-                    textAlign: 'center',
-                    width: '80%',
-                    outline: 'none',
-                    marginBottom: 12,
+                    fontSize: 14, padding: '10px 16px',
+                    background: '#0a0a2e', border: '3px solid #6666aa',
+                    color: 'white', textAlign: 'center',
+                    width: '80%', outline: 'none', marginBottom: 12,
                   }}
                 />
                 {schoolError && (
@@ -280,105 +571,129 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
         </div>
       )}
 
-      {/* Character grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 12,
-        width: '100%',
-        marginBottom: 20,
-      }}>
-        {characters.map((char) => (
-          <div
-            key={char.id}
-            style={{
-              background: char.equipped ? '#1a3a5c' : '#141450',
-              border: `3px solid ${char.equipped ? '#5dde9e' : char.owned ? '#6666aa' : char.isSchoolCard ? '#ffd700' : '#333355'}`,
-              padding: 14,
-              textAlign: 'center',
-              opacity: !char.owned && player.score < char.price ? 0.4 : 1,
-              transition: 'transform 0.1s',
-            }}
-          >
-            <div className="char-tooltip-wrapper">
-              {char.isSchoolCard ? (
-                <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
-              ) : (
-                <PixelCharacter characterId={char.id} pixelSize={4} />
-              )}
-              <div className="char-tooltip">
-                {(CHARACTER_TOOLTIPS[char.id] || '').split('\n').map((line, i) => (
-                  <span key={i}>{line}{i < (CHARACTER_TOOLTIPS[char.id] || '').split('\n').length - 1 && <br />}</span>
-                ))}
+      {/* 캐릭터 탭 */}
+      {tab === 'character' && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 12, width: '100%', marginBottom: 20,
+        }}>
+          {characters.map((char) => (
+            <div
+              key={char.id}
+              style={{
+                background: char.equipped ? '#1a3a5c' : '#141450',
+                border: `3px solid ${char.equipped ? '#5dde9e' : char.owned ? '#6666aa' : char.isSchoolCard ? '#ffd700' : '#333355'}`,
+                padding: 14, textAlign: 'center',
+                opacity: !char.owned && player.score < char.price ? 0.4 : 1,
+                transition: 'transform 0.1s',
+              }}
+            >
+              <div className="char-tooltip-wrapper">
+                {char.isSchoolCard ? (
+                  <SchoolCardCharacter schoolName={player.schoolName || '학교'} pixelSize={4} />
+                ) : (
+                  <PixelCharacter characterId={char.id} pixelSize={4} />
+                )}
+                <div className="char-tooltip">
+                  {(CHARACTER_TOOLTIPS[char.id] || '').split('\n').map((line, i) => (
+                    <span key={i}>{line}{i < (CHARACTER_TOOLTIPS[char.id] || '').split('\n').length - 1 && <br />}</span>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div style={{ fontSize: 11, marginTop: 6 }}>
-              {char.isSchoolCard ? (player.schoolName ? `${player.schoolName}초` : '학교 카드') : char.name}
-            </div>
-            <div style={{
-              fontSize: 10,
-              marginTop: 4,
-              color: char.equipped ? '#5dde9e' : char.owned ? '#aaa' : 'var(--gold)',
-            }}>
-              {char.equipped ? '장착중' : char.owned ? '보유' : `${char.price.toLocaleString()}P`}
-            </div>
-
-            {/* Action buttons */}
-            <div style={{ marginTop: 8, display: 'flex', gap: 6, justifyContent: 'center' }}>
-              {!char.owned && player.score >= char.price && (
-                <button
-                  onClick={() => handleBuy(char.id)}
-                  style={{
-                    background: '#b8860b',
-                    border: '2px solid #daa520',
-                    color: 'white',
-                    fontFamily: "'Press Start 2P', monospace",
-                    fontSize: 8,
-                    padding: '4px 8px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  구매
-                </button>
-              )}
-              {char.owned && !char.equipped && (
-                <>
+              <div style={{ fontSize: 11, marginTop: 6 }}>
+                {char.isSchoolCard ? (player.schoolName ? `${player.schoolName}초` : '학교 카드') : char.name}
+              </div>
+              <div style={{
+                fontSize: 10, marginTop: 4,
+                color: char.equipped ? '#5dde9e' : char.owned ? '#aaa' : 'var(--gold)',
+              }}>
+                {char.equipped ? '장착중' : char.owned ? '보유' : `${char.price.toLocaleString()}P`}
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 6, justifyContent: 'center' }}>
+                {!char.owned && player.score >= char.price && (
                   <button
-                    onClick={() => handleEquip(char.id)}
+                    onClick={() => handleBuy(char.id)}
                     style={{
-                      background: '#2a5a3a',
-                      border: '2px solid #5dde9e',
-                      color: '#5dde9e',
-                      fontFamily: "'Press Start 2P', monospace",
-                      fontSize: 8,
-                      padding: '4px 8px',
-                      cursor: 'pointer',
+                      background: '#b8860b', border: '2px solid #daa520',
+                      color: 'white', fontFamily: "'Press Start 2P', monospace",
+                      fontSize: 8, padding: '4px 8px', cursor: 'pointer',
                     }}
                   >
-                    장착
+                    구매
                   </button>
-                  {char.id !== 0 && (
+                )}
+                {char.owned && !char.equipped && (
+                  <>
                     <button
-                      onClick={() => handleSell(char.id)}
+                      onClick={() => handleEquip(char.id)}
                       style={{
-                        background: '#5a2a2a',
-                        border: '2px solid #ff6666',
-                        color: '#ff6666',
-                        fontFamily: "'Press Start 2P', monospace",
-                        fontSize: 8,
-                        padding: '4px 8px',
-                        cursor: 'pointer',
+                        background: '#2a5a3a', border: '2px solid #5dde9e',
+                        color: '#5dde9e', fontFamily: "'Press Start 2P', monospace",
+                        fontSize: 8, padding: '4px 8px', cursor: 'pointer',
                       }}
                     >
-                      판매
+                      장착
                     </button>
-                  )}
-                </>
-              )}
+                    {char.id !== 0 && (
+                      <button
+                        onClick={() => handleSell(char.id)}
+                        style={{
+                          background: '#5a2a2a', border: '2px solid #ff6666',
+                          color: '#ff6666', fontFamily: "'Press Start 2P', monospace",
+                          fontSize: 8, padding: '4px 8px', cursor: 'pointer',
+                        }}
+                      >
+                        판매
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* 가구 탭 */}
+      {tab === 'furniture' && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: 10, width: '100%', marginBottom: 20,
+        }}>
+          {FURNITURE_IDS.map(fId => {
+            const f = FURNITURE_DEFS[fId];
+            const owned = ownedFurniture.includes(fId);
+            return (
+              <button
+                key={fId}
+                onClick={() => handleBuyFurniture(fId)}
+                disabled={owned}
+                style={{
+                  background: owned ? '#1a1a3e' : '#141450',
+                  border: owned ? '2px solid #336633' : '2px solid #333366',
+                  borderRadius: 6, padding: 10, cursor: owned ? 'default' : 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                  opacity: owned ? 0.6 : 1,
+                }}
+              >
+                <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
+                  <FurnitureCanvas furnitureId={fId} scale={2} />
+                </div>
+                <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
+                  {f.name}
+                </div>
+                <div style={{
+                  fontSize: 9,
+                  color: owned ? '#33aa55' : 'var(--gold)',
+                  fontFamily: "'Press Start 2P', monospace",
+                }}>
+                  {owned ? '보유중' : `${FURNITURE_PRICE.toLocaleString()} P`}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <button
         className="pixel-btn red"

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { generateQuestions, generateChoices } from '../utils/questions';
 import { calculateScore, WRONG_PENALTY, FALL_DURATION } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playSelect, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
-import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
+import { PLANET_SPRITES, EARTH_SPRITE, getRandomSkill, CHARACTER_PALETTES } from '../data/characters';
 import { getMissileStyle } from '../data/missileStyles';
 import { isOnline, getTop10Rankings } from '../utils/supabase';
 import PixelCharacter from './PixelCharacter';
@@ -46,6 +46,7 @@ export default function GamePlay({
   const [totalWrongCount, setTotalWrongCount] = useState(0); // track total wrong across all dans
   const [perfectClear, setPerfectClear] = useState(null); // { bonus } when 2-9단 perfect
   const [rankings, setRankings] = useState([]); // top 10
+  const [skillName, setSkillName] = useState(null); // { text, color }
 
   const animRef = useRef(null);
   const containerRef = useRef(null);
@@ -156,6 +157,12 @@ export default function GamePlay({
       setStageScore((s) => s + score);
       setTotalSessionScore((s) => s + score);
       setFeedback({ type: 'correct', score, text: `+${score}` });
+
+      // 기술명 표시
+      const charId = player.equippedCharacter || 0;
+      const palette = CHARACTER_PALETTES[charId];
+      const skillColor = palette?.colors?.[1] || '#ffd700';
+      setSkillName({ text: getRandomSkill(charId), color: skillColor });
     } else {
       // Wrong
       playWrong();
