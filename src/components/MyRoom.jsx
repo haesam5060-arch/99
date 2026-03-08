@@ -265,9 +265,11 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
   const visitChannelRef = useRef(null);
   const hostChannelRef = useRef(null);
+  const hostChannelReadyRef = useRef(false);
+  const visitChannelReadyRef = useRef(false);
   const visitModeRef = useRef(null);
-  const roomSizeRef = useRef({ w: 600, h: 400 }); // 비율 변환용 최신 roomSize 참조
-  const lastBroadcastRef = useRef(0); // 호스트 전체상태 브로드캐스트 쓰로틀
+  const roomSizeRef = useRef({ w: 600, h: 400 });
+  const lastBroadcastRef = useRef(0);
 
   // ── 1:1 대결 ──
   const DUEL_TIME = 10; // 제한시간 10초
@@ -547,9 +549,10 @@ export default function MyRoom({ player, nickname, onBack }) {
           });
         }
       },
+      onReady: () => { hostChannelReadyRef.current = true; },
     });
     hostChannelRef.current = ch;
-    return () => { leaveVisitRoom(ch); hostChannelRef.current = null; };
+    return () => { leaveVisitRoom(ch); hostChannelRef.current = null; hostChannelReadyRef.current = false; };
   }, [nickname, equippedId]);
 
   // 브로드캐스트는 애니메이션 tick에서 직접 실행 (broadcastInTick 함수)
@@ -559,14 +562,14 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (!eq) return;
     const rw = roomSizeRef.current.w || 1, rh = roomSizeRef.current.h || 1;
     // 방문 중이면 상대방 채널에 guest-move (비율 좌표)
-    if (visitModeRef.current === 'visiting' && visitChannelRef.current) {
+    if (visitModeRef.current === 'visiting' && visitChannelRef.current && visitChannelReadyRef.current) {
       broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
         nickname, characterId: equippedId,
         rx: eq.x / rw, ry: eq.y / rh, flip: eq.flip,
       });
     }
     // 호스트로서: 전체 캐릭터 상태를 비율 좌표로 전송 (150ms 쓰로틀)
-    if (hostChannelRef.current) {
+    if (hostChannelRef.current && hostChannelReadyRef.current) {
       const now = Date.now();
       if (now - lastBroadcastRef.current > 150) {
         lastBroadcastRef.current = now;
@@ -759,6 +762,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           });
         }
       },
+      onReady: () => { visitChannelReadyRef.current = true; },
     });
     visitChannelRef.current = ch;
     setVisitMode('visiting');
@@ -1141,8 +1145,10 @@ export default function MyRoom({ player, nickname, onBack }) {
           if (ch.hidden || ch.action === 'sleep') return;
           const chVx = (ch.x / roomSize.w) * 300;
           const chVy = (ch.y / roomSize.h) * 200;
-          const bCenterX = bp.x + (f.w * SCALE) / 2;
-          const bCenterY = bp.y + (f.h * SCALE) / 2;
+          const bVirtW = (f.w * SCALE / roomSize.w) * 300;
+          const bVirtH = (f.h * SCALE / roomSize.h) * 200;
+          const bCenterX = bp.x + bVirtW / 2;
+          const bCenterY = bp.y + bVirtH / 2;
           const dx = bCenterX - chVx;
           const dy = bCenterY - chVy;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1166,8 +1172,9 @@ export default function MyRoom({ player, nickname, onBack }) {
           bp.vy *= BALL_FRICTION;
 
           // 벽 반사
-          const maxX = 300 - f.w * SCALE;
-          const maxY = 200 - f.h * SCALE;
+          const rw = roomSizeRef.current.w || 1, rh = roomSizeRef.current.h || 1;
+          const maxX = 300 - (f.w * SCALE / rw) * 300;
+          const maxY = 200 - (f.h * SCALE / rh) * 200;
           const minY = 60; // 바닥 영역만
           if (bp.x < 0) { bp.x = 0; bp.vx = Math.abs(bp.vx) * 0.7; }
           if (bp.x > maxX) { bp.x = maxX; bp.vx = -Math.abs(bp.vx) * 0.7; }
@@ -1180,20 +1187,24 @@ export default function MyRoom({ player, nickname, onBack }) {
 
           // 골 감지: 공이 골대 영역 안에 들어왔는지
           if (!goalCooldownRef.current) {
-            const ballCX = bp.x + (f.w * SCALE) / 2;
-            const ballCY = bp.y + (f.h * SCALE) / 2;
+            const bVW2 = (f.w * SCALE / rw) * 300;
+            const bVH2 = (f.h * SCALE / rh) * 200;
+            const ballCX = bp.x + bVW2 / 2;
+            const ballCY = bp.y + bVH2 / 2;
             layout.forEach((fi) => {
               if (fi.id !== 'soccerGoal') return;
               const gf = FURNITURE_DEFS.soccerGoal;
+              const gVW = (gf.w * SCALE / rw) * 300;
+              const gVH = (gf.h * SCALE / rh) * 200;
               const gLeft = fi.x;
-              const gRight = fi.x + gf.w * SCALE;
+              const gRight = fi.x + gVW;
               const gTop = fi.y;
-              const gBottom = fi.y + gf.h * SCALE;
+              const gBottom = fi.y + gVH;
               if (ballCX > gLeft + 4 && ballCX < gRight - 4 && ballCY > gTop && ballCY < gBottom) {
                 goalCooldownRef.current = true;
                 // 골 위치 (% 기준)
-                const goalScreenX = ((fi.x + gf.w * SCALE / 2) / 300) * 100;
-                const goalScreenY = ((fi.y + gf.h * SCALE / 2) / 200) * 100;
+                const goalScreenX = ((fi.x + gVW / 2) / 300) * 100;
+                const goalScreenY = ((fi.y + gVH / 2) / 200) * 100;
                 // 파티클 생성
                 const particles = Array.from({ length: 30 }, (_, i) => ({
                   id: i,
@@ -1290,10 +1301,11 @@ export default function MyRoom({ player, nickname, onBack }) {
     setLayout(prev => prev.map((item, i) => {
       if (i !== drag.idx) return item;
       const f = FURNITURE_DEFS[item.id];
+      const rw = rect.width || 1, rh = rect.height || 1;
       return {
         ...item,
-        x: Math.max(0, Math.min(300 - f.w * SCALE, vx)),
-        y: Math.max(0, Math.min(200 - f.h * SCALE, vy)),
+        x: Math.max(0, Math.min(300 - (f.w * SCALE / rw) * 300, vx)),
+        y: Math.max(0, Math.min(200 - (f.h * SCALE / rh) * 200, vy)),
       };
     }));
   };
@@ -2042,7 +2054,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                         setLayout(prev => [...prev, {
                           id: fId,
                           x: f.wallMount ? 100 : 50 + Math.random() * 150,
-                          y: f.wallMount ? 15 : 200 - f.h * SCALE - 10,
+                          y: f.wallMount ? 15 : 200 - (f.h * SCALE / roomSize.h) * 200 - 10,
                         }]);
                       }}
                       style={{

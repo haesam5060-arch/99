@@ -252,7 +252,7 @@ export async function getOnlineRankings() {
 // ── 방 방문 (Realtime) ──
 
 // 방 방문 채널 생성 & 접속
-export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { onGuestUpdate, onHostUpdate }) {
+export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { onGuestUpdate, onHostUpdate, onReady }) {
   if (!supabase) return null;
   const channelName = `visit-room-${hostNickname}`;
   const channel = supabase.channel(channelName, {
@@ -286,6 +286,7 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
         characterId: visitorCharId,
         role: 'visitor',
       });
+      if (onReady) onReady();
     }
   });
 
@@ -293,7 +294,7 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
 }
 
 // 호스트가 자기 방 채널 열기 (방문자 수신 대기)
-export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate }) {
+export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate, onReady }) {
   if (!supabase) return null;
   const channelName = `visit-room-${hostNickname}`;
   const channel = supabase.channel(channelName, {
@@ -303,6 +304,9 @@ export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate }) {
   channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
     if (onGuestUpdate) onGuestUpdate(payload);
   });
+
+  // 호스트도 host-chars를 수신할 수 있도록 등록 (자기 메시지는 self:false로 안 옴)
+  channel.on('broadcast', { event: 'host-chars' }, () => {});
 
   channel.on('presence', { event: 'sync' }, () => {
     const state = channel.presenceState();
@@ -320,15 +324,18 @@ export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate }) {
         characterId: hostCharId,
         role: 'host',
       });
+      if (onReady) onReady();
     }
   });
 
   return channel;
 }
 
-// 위치 브로드캐스트
+// 위치 브로드캐스트 (채널 구독 완료 후에만 전송)
 export function broadcastVisitPosition(channel, eventName, payload) {
   if (!channel) return;
+  // Supabase Realtime: 채널이 joined 상태가 아니면 send가 조용히 실패함
+  if (channel._state && channel._state !== 'joined') return;
   channel.send({ type: 'broadcast', event: eventName, payload });
 }
 

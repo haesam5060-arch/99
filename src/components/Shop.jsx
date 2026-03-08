@@ -449,6 +449,12 @@ const FURNITURE_TOOLTIPS = {
   bed: '캐릭터가 침대에서 잠을 자요 zzZ',
   desk: '캐릭터가 책상에 앉아 공부해요',
   chair: '캐릭터가 의자에 앉아요',
+  bookshelf: '방을 꾸미는 책장이에요',
+  rug: '방을 꾸미는 러그에요',
+  windowF: '방에 창문을 달아요',
+  lamp: '방을 밝히는 스탠드에요',
+  clock: '벽에 거는 시계에요',
+  plant: '방을 꾸미는 화분이에요',
   fridge: '캐릭터가 냉장고에서 간식을 꺼내 먹어요',
   diningTable: '캐릭터가 식탁에서 밥을 먹어요',
   toyTruck: '캐릭터가 트럭을 타고 돌아다녀요!\n내 캐릭터도 탑승 가능!',
@@ -664,8 +670,8 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
       newLayout = saved ? JSON.parse(saved) : [];
       newLayout.push({
         id: furnitureId,
-        x: f.wallMount ? 100 + Math.random() * 80 : 20 + Math.random() * (ROOM_W - f.w * SCALE - 40),
-        y: f.wallMount ? 10 + Math.random() * 30 : ROOM_H - f.h * SCALE - 5,
+        x: f.wallMount ? 100 + Math.random() * 80 : 20 + Math.random() * (ROOM_W - (f.w * SCALE / 600) * ROOM_W - 40),
+        y: f.wallMount ? 10 + Math.random() * 30 : ROOM_H - (f.h * SCALE / 400) * ROOM_H - 5,
       });
       localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(newLayout));
     } catch {}
@@ -926,8 +932,15 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                 }}
               >
-                <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
+                <div className="char-tooltip-wrapper" style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
                   <FurnitureCanvas furnitureId={fId} scale={2} />
+                  {FURNITURE_TOOLTIPS[fId] && (
+                    <div className="char-tooltip">
+                      {FURNITURE_TOOLTIPS[fId].split('\n').map((line, i) => (
+                        <span key={i}>{line}{i < FURNITURE_TOOLTIPS[fId].split('\n').length - 1 && <br />}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
                   {f.name} {ownedCount > 0 ? `x${ownedCount}` : ''}
