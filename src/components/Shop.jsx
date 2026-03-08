@@ -443,7 +443,7 @@ const FURNITURE_DEFS = {
 };
 
 // Export for MyRoom to use
-export { FURNITURE_DEFS, FURNITURE_PRICE };
+export { FURNITURE_DEFS, FURNITURE_PRICE, FURNITURE_TOOLTIPS };
 
 const FURNITURE_TOOLTIPS = {
   bed: '캐릭터가 침대에서 잠을 자요 zzZ',
@@ -642,7 +642,18 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
   };
 
   // ── 가구 구매 ──
+  const FURNITURE_MAX_COUNT = { soccerGoal: 2 };
   const handleBuyFurniture = async (furnitureId) => {
+    // 최대 구매 개수 제한 체크
+    if (FURNITURE_MAX_COUNT[furnitureId]) {
+      const currentCount = ownedFurniture.filter(id => id === furnitureId).length;
+      if (currentCount >= FURNITURE_MAX_COUNT[furnitureId]) {
+        playWrong();
+        showMessage(`${FURNITURE_DEFS[furnitureId].name}은(는) 최대 ${FURNITURE_MAX_COUNT[furnitureId]}개까지만 구매 가능!`);
+        return;
+      }
+    }
+
     if (player.score < FURNITURE_PRICE) {
       playWrong();
       showMessage('포인트가 부족합니다!');
@@ -947,10 +958,10 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                 </div>
                 <div style={{
                   fontSize: 9,
-                  color: 'var(--gold)',
+                  color: FURNITURE_MAX_COUNT[fId] && ownedCount >= FURNITURE_MAX_COUNT[fId] ? '#888' : 'var(--gold)',
                   fontFamily: "'Press Start 2P', monospace",
                 }}>
-                  {FURNITURE_PRICE.toLocaleString()} P
+                  {FURNITURE_MAX_COUNT[fId] && ownedCount >= FURNITURE_MAX_COUNT[fId] ? `MAX (${ownedCount}/${FURNITURE_MAX_COUNT[fId]})` : `${FURNITURE_PRICE.toLocaleString()} P`}
                 </div>
               </button>
             );

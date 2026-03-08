@@ -334,8 +334,11 @@ export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate, onReady
 // 위치 브로드캐스트 (채널 구독 완료 후에만 전송)
 export function broadcastVisitPosition(channel, eventName, payload) {
   if (!channel) return;
-  // Supabase Realtime: 채널이 joined 상태가 아니면 send가 조용히 실패함
-  if (channel._state && channel._state !== 'joined') return;
+  // Supabase Realtime v2: state 프로퍼티로 채널 상태 확인
+  if (channel.state && channel.state !== 'joined') {
+    console.warn('[broadcast] 채널 미참여 상태:', channel.state, eventName);
+    return;
+  }
   channel.send({ type: 'broadcast', event: eventName, payload });
 }
 

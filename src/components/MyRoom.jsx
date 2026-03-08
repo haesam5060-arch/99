@@ -493,6 +493,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (!isOnline()) return;
     const ch = hostVisitRoom(nickname, equippedId, {
       onGuestUpdate: (payload) => {
+        console.log('[HOST] onGuestUpdate:', payload.type || (payload.rx != null ? 'position' : 'unknown'));
         // 상호작용 수신
         if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
         if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
@@ -549,7 +550,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           });
         }
       },
-      onReady: () => { hostChannelReadyRef.current = true; },
+      onReady: () => { hostChannelReadyRef.current = true; console.log('[HOST] channel READY'); },
     });
     hostChannelRef.current = ch;
     return () => { leaveVisitRoom(ch); hostChannelRef.current = null; hostChannelReadyRef.current = false; };
@@ -582,7 +583,10 @@ export default function MyRoom({ player, nickname, onBack }) {
         broadcastVisitPosition(hostChannelRef.current, 'host-chars', {
           type: 'full-state', chars: fullState, nickname, characterId: equippedId,
         });
+        if (now % 3000 < 200) console.log('[HOST-SEND] chars:', fullState.length, 'ch-state:', hostChannelRef.current?.state);
       }
+    } else if (Date.now() % 5000 < 200) {
+      console.log('[HOST-SKIP] ref:', !!hostChannelRef.current, 'ready:', hostChannelReadyRef.current);
     }
   }, [equippedId, nickname]);
 
@@ -642,6 +646,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     // 방문 채널 접속
     const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
       onHostUpdate: (payload) => {
+        console.log('[VISITOR] onHostUpdate:', payload.type || 'position');
         // 꽃/이모지는 비율 좌표로 수신 → plantFlower/sendEmoji에서 변환
         if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
         if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
@@ -672,6 +677,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         }
         // 호스트 전체 캐릭터 상태 수신 → 비율 → 픽셀 변환 후 charStates 동기화
         if (payload.type === 'full-state' && payload.chars) {
+          console.log('[VISITOR-RECV] full-state received, chars:', payload.chars.length);
           const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
           setCharStates(prev => {
             // 방문자 자신의 캐릭터는 반드시 보존
@@ -763,7 +769,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           });
         }
       },
-      onReady: () => { visitChannelReadyRef.current = true; },
+      onReady: () => { visitChannelReadyRef.current = true; console.log('[VISITOR] channel READY'); },
     });
     visitChannelRef.current = ch;
     setVisitMode('visiting');
@@ -1302,12 +1308,10 @@ export default function MyRoom({ player, nickname, onBack }) {
     const vy = ((e.clientY - rect.top) / rect.height) * 200 - drag.offsetY;
     setLayout(prev => prev.map((item, i) => {
       if (i !== drag.idx) return item;
-      const f = FURNITURE_DEFS[item.id];
-      const rw = rect.width || 1, rh = rect.height || 1;
       return {
         ...item,
-        x: Math.max(0, Math.min(300 - (f.w * SCALE / rw) * 300, vx)),
-        y: Math.max(0, Math.min(200 - (f.h * SCALE / rh) * 200, vy)),
+        x: Math.max(0, Math.min(300, vx)),
+        y: Math.max(0, Math.min(200, vy)),
       };
     }));
   };
@@ -1549,8 +1553,8 @@ export default function MyRoom({ player, nickname, onBack }) {
               onPointerUp={handlePointerUp}
               style={{
                 position: 'absolute',
-                left: `${(renderX / 300) * 100}%`,
-                top: `${(renderY / 200) * 100}%`,
+                left: `calc(${(renderX / 300) * 100}% - ${(renderX / 300) * f.w * SCALE}px)`,
+                top: `calc(${(renderY / 200) * 100}% - ${(renderY / 200) * f.h * SCALE}px)`,
                 cursor: editMode ? 'grab' : 'default',
                 zIndex: f.wallMount ? 1 : Math.floor((renderY / 200) * roomSize.h),
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
