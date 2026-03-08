@@ -13,7 +13,7 @@ export default function Ranking({ nickname, onBack }) {
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
 
-  const monthLabel = `${new Date().getMonth() + 1}월`;
+  const monthLabel = '이번 주';
 
   useEffect(() => {
     async function fetchRankings() {
@@ -40,7 +40,7 @@ export default function Ranking({ nickname, onBack }) {
       </div>
 
       <div style={{ fontSize: 10, color: '#888', marginBottom: 20, textAlign: 'center', lineHeight: 1.8 }}>
-        이번 달 총 획득 점수 기준 · 매월 1일 초기화
+        이번 주 총 획득 점수 기준 · 매주 월요일 초기화
       </div>
 
       <div style={{
@@ -133,7 +133,7 @@ export default function Ranking({ nickname, onBack }) {
 
         {!loading && rankings.length > 0 && rankings.filter(e => e.totalEarned > 0).length === 0 && (
           <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: '#666' }}>
-            이번 달 기록이 없어요
+            이번 주 기록이 없어요
           </div>
         )}
       </div>

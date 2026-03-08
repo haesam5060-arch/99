@@ -4,6 +4,7 @@ import { calculateScore, WRONG_PENALTY, FALL_DURATION } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playSelect, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
 import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
 import { getMissileStyle } from '../data/missileStyles';
+import { isOnline, getTop10Rankings } from '../utils/supabase';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
 
@@ -13,6 +14,7 @@ const GOLDEN_WORM_ID = 24;
 export default function GamePlay({
   mode,
   player,
+  nickname,
   onStageClear,
 }) {
   // Custom mode: { type: 'custom', dans: [2, 5, 9] }
@@ -43,6 +45,8 @@ export default function GamePlay({
   const [quitResult, setQuitResult] = useState(null); // { totalScore }
   const [totalWrongCount, setTotalWrongCount] = useState(0); // track total wrong across all dans
   const [perfectClear, setPerfectClear] = useState(null); // { bonus } when 2-9단 perfect
+  const [rankings, setRankings] = useState([]); // top 10
+  const [showRanking, setShowRanking] = useState(false);
 
   const animRef = useRef(null);
   const containerRef = useRef(null);
@@ -72,6 +76,10 @@ export default function GamePlay({
   useEffect(() => {
     startBGM('game');
     startDan(isCustomMode ? customDans[0] : 2);
+    // Fetch top 10 rankings
+    if (isOnline()) {
+      getTop10Rankings().then((r) => setRankings(r));
+    }
     return () => { stopBGM(); cancelAnimationFrame(animRef.current); };
   }, [startDan]);
 
@@ -387,6 +395,112 @@ export default function GamePlay({
       >
         종료
       </button>
+
+      {/* Ranking toggle button */}
+      <button
+        onClick={() => setShowRanking((v) => !v)}
+        style={{
+          position: 'fixed',
+          top: 10,
+          left: 70,
+          zIndex: 1000,
+          background: showRanking ? 'rgba(255, 215, 0, 0.2)' : 'rgba(20, 20, 50, 0.8)',
+          border: `2px solid ${showRanking ? '#ffd700' : '#6af'}`,
+          color: showRanking ? '#ffd700' : '#6af',
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: 8,
+          padding: '6px 8px',
+          cursor: 'pointer',
+          borderRadius: 4,
+        }}
+      >
+        랭킹
+      </button>
+
+      {/* Live ranking board */}
+      {showRanking && rankings.length > 0 && (() => {
+        const myCurrentScore = player.score + totalSessionScore;
+        // Build live ranking list with my live score inserted
+        const liveList = rankings
+          .map((r) => ({ ...r, isMe: r.name === nickname }))
+          .filter((r) => r.name !== nickname);
+        // Add current player
+        const myEntry = rankings.find((r) => r.name === nickname);
+        const myTotalEarned = (myEntry?.totalEarned || 0) + Math.max(0, totalSessionScore);
+        liveList.push({ name: nickname, totalEarned: myTotalEarned, score: myCurrentScore, isMe: true });
+        liveList.sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
+        const top10 = liveList.slice(0, 10);
+        const myRank = liveList.findIndex((r) => r.isMe) + 1;
+        const inTop10 = myRank <= 10;
+
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 45,
+            left: 10,
+            zIndex: 999,
+            background: 'rgba(10, 10, 40, 0.92)',
+            border: '2px solid #333366',
+            borderRadius: 6,
+            padding: '10px 12px',
+            width: 200,
+            fontFamily: "'Press Start 2P', monospace",
+          }}>
+            <div style={{ fontSize: 9, color: '#ffd700', marginBottom: 8, textAlign: 'center' }}>
+              이번 주 TOP 10
+            </div>
+            {top10.map((r, i) => (
+              <div key={r.name} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 8,
+                padding: '3px 0',
+                color: r.isMe ? '#ffd700' : '#ccc',
+                background: r.isMe ? 'rgba(255, 215, 0, 0.1)' : 'transparent',
+                borderRadius: 2,
+                paddingLeft: 4,
+                paddingRight: 4,
+              }}>
+                <span style={{
+                  color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#888',
+                  width: 20,
+                }}>
+                  {i + 1}
+                </span>
+                <span style={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {r.name}{r.isMe ? ' (나)' : ''}
+                </span>
+                <span style={{ color: r.isMe ? '#ffd700' : '#aaa', marginLeft: 6 }}>
+                  {r.totalEarned.toLocaleString()}
+                </span>
+              </div>
+            ))}
+            {!inTop10 && (
+              <div style={{
+                marginTop: 6,
+                paddingTop: 6,
+                borderTop: '1px solid #333366',
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 8,
+                color: '#ffd700',
+                paddingLeft: 4,
+                paddingRight: 4,
+              }}>
+                <span>{myRank}위</span>
+                <span>{nickname} (나)</span>
+                <span>{myTotalEarned.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Timer bar */}
       <div style={{

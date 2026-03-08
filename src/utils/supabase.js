@@ -11,24 +11,32 @@ export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY)
 // Check if online mode is available
 export const isOnline = () => !!supabase;
 
-// --- Monthly reset helper ---
-function getCurrentMonth() {
+// --- Weekly reset helper ---
+function getCurrentWeek() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  // Get Monday of current week
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(now);
+  monday.setDate(diff);
+  const year = monday.getFullYear();
+  const month = String(monday.getMonth() + 1).padStart(2, '0');
+  const date = String(monday.getDate()).padStart(2, '0');
+  return `${year}-W${month}${date}`;
 }
 
-// Check if player needs monthly total_earned reset
-function needsMonthlyReset(player) {
-  return player.earned_month !== getCurrentMonth();
+// Check if player needs weekly total_earned reset
+function needsWeeklyReset(player) {
+  return player.earned_month !== getCurrentWeek();
 }
 
-async function resetMonthlyIfNeeded(player) {
-  if (!supabase || !needsMonthlyReset(player)) return player;
+async function resetWeeklyIfNeeded(player) {
+  if (!supabase || !needsWeeklyReset(player)) return player;
   const { data } = await supabase
     .from('players')
     .update({
       total_earned: 0,
-      earned_month: getCurrentMonth(),
+      earned_month: getCurrentWeek(),
       updated_at: new Date().toISOString(),
     })
     .eq('nickname', player.nickname)
@@ -62,7 +70,7 @@ export async function registerPlayer(nickname, password) {
       characters: [0],
       equipped_character: 0,
       total_earned: 0,
-      earned_month: getCurrentMonth(),
+      earned_month: getCurrentWeek(),
     })
     .select()
     .single();
@@ -83,7 +91,7 @@ export async function loginPlayer(nickname, password) {
     .eq('password', password)
     .single();
   if (error || !data) return { success: false, error: 'wrong_password' };
-  const player = await resetMonthlyIfNeeded(data);
+  const player = await resetWeeklyIfNeeded(data);
   return { success: true, player };
 }
 
@@ -96,7 +104,7 @@ export async function getOnlinePlayer(nickname) {
     .eq('nickname', nickname)
     .single();
   if (!data) return null;
-  return await resetMonthlyIfNeeded(data);
+  return await resetWeeklyIfNeeded(data);
 }
 
 // Update player score (add to existing) — also adds to total_earned for ranking
@@ -191,10 +199,10 @@ export async function updateSchoolName(nickname, schoolName) {
   return data;
 }
 
-// Get online rankings (sorted by monthly total_earned, then score)
+// Get online rankings (sorted by weekly total_earned, then score)
 export async function getOnlineRankings() {
   if (!supabase) return [];
-  const currentMonth = getCurrentMonth();
+  const currentWeek = getCurrentWeek();
   const { data } = await supabase
     .from('players')
     .select('nickname, score, total_earned, earned_month, characters, equipped_character, school_name')
@@ -205,11 +213,33 @@ export async function getOnlineRankings() {
     .map((p) => ({
       name: p.nickname,
       score: p.score,
-      totalEarned: p.earned_month === currentMonth ? p.total_earned : 0,
+      totalEarned: p.earned_month === currentWeek ? p.total_earned : 0,
       characters: p.characters,
       characterCount: p.characters.filter((c) => c !== 0).length,
       equippedCharacter: p.equipped_character,
       schoolName: p.school_name || '',
     }))
     .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
+}
+
+// Get top 10 rankings (lightweight, for game screen)
+export async function getTop10Rankings() {
+  if (!supabase) return [];
+  const currentWeek = getCurrentWeek();
+  const { data } = await supabase
+    .from('players')
+    .select('nickname, score, total_earned, earned_month')
+    .order('total_earned', { ascending: false })
+    .limit(30);
+  if (!data) return [];
+
+  return data
+    .map((p) => ({
+      name: p.nickname,
+      totalEarned: p.earned_month === currentWeek ? p.total_earned : 0,
+      score: p.score,
+    }))
+    .filter((p) => p.totalEarned > 0)
+    .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score)
+    .slice(0, 10);
 }

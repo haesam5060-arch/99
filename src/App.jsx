@@ -106,6 +106,7 @@ function App() {
         <GamePlay
           mode={gameMode}
           player={player}
+          nickname={nickname}
           onStageClear={handleStageClear}
         />
       )}
