@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { generateChoices } from '../utils/questions';
+import { useState, useEffect, useRef } from 'react';
 import { calculateScore, WRONG_PENALTY } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
 import { PLANET_SPRITES, EARTH_SPRITE, getRandomSkill, CHARACTER_PALETTES } from '../data/characters';
@@ -10,13 +9,46 @@ const COOP_FALL_DURATION = 15;
 const QUESTIONS_PER_PLANET = 4;
 const SCORE_MULTIPLIER = 2;
 
+// Deterministic choice generation - same input = same output, no randomness
+function makeChoicesForQuestion(dan, b, answer) {
+  const wrong = [];
+  for (let i = 1; i <= 9; i++) {
+    if (i !== b) wrong.push(dan * i);
+  }
+  // Sort wrong answers by distance from correct answer
+  wrong.sort((a, bb) => Math.abs(a - answer) - Math.abs(bb - answer));
+  // Take 3 closest wrong answers
+  const picks = wrong.slice(0, 3);
+  // Combine with correct answer, sort numerically (deterministic order)
+  const all = [answer, ...picks].sort((a, bb) => a - bb);
+  return all;
+}
+
+// Generate all 9 questions for a dan (deterministic order: 1-9 shuffled by seed)
+function makeQuestionsForDan(dan, seed) {
+  const indices = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  // Seeded shuffle
+  let s = seed;
+  for (let i = indices.length - 1; i > 0; i--) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    const j = s % (i + 1);
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices.map((b) => ({
+    a: dan,
+    b,
+    answer: dan * b,
+    choices: makeChoicesForQuestion(dan, b, dan * b),
+  }));
+}
+
 export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const { isHost, roomChannel, lobbyChannel, players: initialPlayers } = coopData;
 
   const [currentDan, setCurrentDan] = useState(2);
-  const [allQuestions, setAllQuestions] = useState([]); // each: { a, b, answer, choices }
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [subIndex, setSubIndex] = useState(0);
+  const [questions, setQuestions] = useState([]); // 9 questions for current dan
+  const [qIndex, setQIndex] = useState(0); // current question index (0-8)
+  const [solvedInPlanet, setSolvedInPlanet] = useState(0); // how many solved in current planet group
   const [selectedChoice, setSelectedChoice] = useState(-1);
   const [planetY, setPlanetY] = useState(0);
   const [planetStartTime, setPlanetStartTime] = useState(null);
@@ -29,7 +61,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const [contributions, setContributions] = useState(() => {
     const c = {};
     (initialPlayers || []).forEach((p) => {
-      c[p.nickname] = { correctCount: 0, score: 0, equippedCharacter: p.equippedCharacter };
+      c[p.nickname] = { correctCount: 0, equippedCharacter: p.equippedCharacter };
     });
     return c;
   });
@@ -39,114 +71,67 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
 
   const animRef = useRef(null);
   const subStartTimeRef = useRef(null);
-  // Refs for latest state in callbacks
   const stateRef = useRef({
-    subIndex: 0, questionIndex: 0, allQuestions: [], currentDan: 2,
-    gamePhase: 'ready', totalSessionScore: 0,
+    qIndex: 0, questions: [], currentDan: 2,
+    gamePhase: 'ready', totalSessionScore: 0, solvedInPlanet: 0,
   });
 
-  // Sync refs
+  // Sync refs after every render
   useEffect(() => {
     stateRef.current = {
-      subIndex, questionIndex, allQuestions, currentDan,
-      gamePhase, totalSessionScore,
+      qIndex, questions, currentDan,
+      gamePhase, totalSessionScore, solvedInPlanet,
     };
   });
 
-  // Derived state
-  const planetQuestions = allQuestions.slice(
-    questionIndex * QUESTIONS_PER_PLANET,
-    (questionIndex + 1) * QUESTIONS_PER_PLANET
-  );
-  const currentQuestion = planetQuestions[subIndex];
+  const currentQuestion = questions[qIndex];
   const choices = currentQuestion?.choices || [];
 
-  // Set sub-question start time when question changes
+  // Reset sub-question timer when question changes
   useEffect(() => {
     if (currentQuestion) {
       subStartTimeRef.current = Date.now();
     }
-  }, [currentQuestion]);
+  }, [qIndex, currentDan]);
 
-  // Generate questions with choices included
-  const makeQuestions = useCallback((dan) => {
-    const qs = [];
-    for (let i = 1; i <= 8; i++) {
-      const answer = dan * i;
-      const ch = generateChoices(dan, answer);
-      // Safety: ensure correct answer is included
-      if (!ch.includes(answer)) {
-        ch[0] = answer;
-        for (let j = ch.length - 1; j > 0; j--) {
-          const k = Math.floor(Math.random() * (j + 1));
-          [ch[j], ch[k]] = [ch[k], ch[j]];
-        }
-      }
-      qs.push({ a: dan, b: i, answer, choices: ch });
-    }
-    // Shuffle question order
-    for (let i = qs.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [qs[i], qs[j]] = [qs[j], qs[i]];
-    }
-    return qs;
-  }, []);
+  // Start a dan
+  const startNewDan = (dan, seed) => {
+    const qs = makeQuestionsForDan(dan, seed);
+    setQuestions(qs);
+    setQIndex(0);
+    setSolvedInPlanet(0);
+    setGamePhase('ready');
+    setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
+    setFeedback(null);
+    setSelectedChoice(-1);
+    playStageStart();
 
-  // Start a dan (host only generates and broadcasts)
-  const startDan = useCallback((dan) => {
-    try {
-      const qs = makeQuestions(dan);
-      const planetIdx = Math.floor(Math.random() * PLANET_SPRITES.length);
+    stateRef.current.questions = qs;
+    stateRef.current.qIndex = 0;
+    stateRef.current.solvedInPlanet = 0;
+    stateRef.current.gamePhase = 'ready';
 
-      setAllQuestions(qs);
-      setQuestionIndex(0);
-      setSubIndex(0);
-      setGamePhase('ready');
-      setCurrentPlanet(planetIdx);
-      setFeedback(null);
-      setSelectedChoice(-1);
-      playStageStart();
-
-      // Update refs immediately
-      stateRef.current.allQuestions = qs;
-      stateRef.current.questionIndex = 0;
-      stateRef.current.subIndex = 0;
-      stateRef.current.gamePhase = 'ready';
-
-      setTimeout(() => {
-        setGamePhase('playing');
-        stateRef.current.gamePhase = 'playing';
-        setPlanetStartTime(Date.now());
-        setPlanetY(0);
-      }, 500);
-
-      // Broadcast to other players
-      if (isHost && roomChannel) {
-        setTimeout(() => {
-          try {
-            broadcastGame(roomChannel, {
-              type: 'dan-start',
-              dan,
-              questions: qs,
-              planetIndex: planetIdx,
-            });
-          } catch (e) {
-            console.error('broadcast dan-start error:', e);
-          }
-        }, 200);
-      }
-    } catch (e) {
-      console.error('startDan error:', e);
-      setError(`startDan 오류: ${e.message}`);
-    }
-  }, [isHost, roomChannel, makeQuestions]);
+    setTimeout(() => {
+      setGamePhase('playing');
+      stateRef.current.gamePhase = 'playing';
+      setPlanetStartTime(Date.now());
+      setPlanetY(0);
+    }, 500);
+  };
 
   // Initialize
   useEffect(() => {
     try {
       startBGM('game');
       if (isHost) {
-        startDan(2);
+        const seed = Date.now();
+        startNewDan(2, seed);
+        // Broadcast seed so all clients generate same questions
+        setTimeout(() => {
+          if (roomChannel) {
+            broadcastGame(roomChannel, { type: 'dan-start', dan: 2, seed });
+          }
+        }, 200);
       }
     } catch (e) {
       console.error('init error:', e);
@@ -168,8 +153,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setPlanetY(progress);
 
       if (progress >= 1) {
-        const remaining = QUESTIONS_PER_PLANET - stateRef.current.subIndex;
-        handlePlanetCrash(remaining);
+        handlePlanetCrash();
         return;
       }
       animRef.current = requestAnimationFrame(animate);
@@ -190,38 +174,15 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           case 'dan-start':
             if (!isHost) {
               setCurrentDan(payload.dan);
-              setAllQuestions(payload.questions);
-              setQuestionIndex(0);
-              setSubIndex(0);
-              setCurrentPlanet(payload.planetIndex);
-              setGamePhase('ready');
-              setFeedback(null);
-              setSelectedChoice(-1);
-              stateRef.current.allQuestions = payload.questions;
-              stateRef.current.questionIndex = 0;
-              stateRef.current.subIndex = 0;
               stateRef.current.currentDan = payload.dan;
-              stateRef.current.gamePhase = 'ready';
-              playStageStart();
-              setTimeout(() => {
-                if (!active) return;
-                setGamePhase('playing');
-                stateRef.current.gamePhase = 'playing';
-                setPlanetStartTime(Date.now());
-                setPlanetY(0);
-              }, 500);
+              startNewDan(payload.dan, payload.seed);
             }
             break;
 
           case 'answer-attempt':
-            // Host only: process other players' answers
             if (isHost) {
               const s = stateRef.current;
-              const pqs = s.allQuestions.slice(
-                s.questionIndex * QUESTIONS_PER_PLANET,
-                (s.questionIndex + 1) * QUESTIONS_PER_PLANET
-              );
-              const q = pqs[s.subIndex];
+              const q = s.questions[s.qIndex];
               if (!q || s.gamePhase !== 'playing') return;
 
               const correct = payload.answer === q.answer;
@@ -235,15 +196,15 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
                 nickname: payload.nickname,
                 correct,
                 score,
+                newQIndex: correct ? s.qIndex + 1 : s.qIndex,
+                newSolvedInPlanet: correct ? s.solvedInPlanet + 1 : s.solvedInPlanet,
               });
 
-              // Process locally for host
               if (active) applyAnswerResult(payload.nickname, correct, score);
             }
             break;
 
           case 'answer-result':
-            // Non-host only (host already processed locally)
             if (!isHost && active) {
               applyAnswerResult(payload.nickname, payload.correct, payload.score);
             }
@@ -254,7 +215,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
               setTotalSessionScore((s) => s - payload.penalty);
               setShake(true);
               setFlashColor('rgba(255, 0, 0, 0.3)');
-              setFeedback({ type: 'wrong', text: `미해결 ${payload.remaining}개! -${payload.penalty}P`, score: -payload.penalty });
+              setFeedback({ type: 'wrong', text: `충돌! -${payload.penalty}P`, score: -payload.penalty });
               setTimeout(() => {
                 if (!active) return;
                 setShake(false);
@@ -266,17 +227,15 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
 
           case 'next-planet':
             if (!isHost && active) {
-              setQuestionIndex(payload.questionIndex);
-              setSubIndex(0);
+              setSolvedInPlanet(0);
+              stateRef.current.solvedInPlanet = 0;
               setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
               setPlanetStartTime(Date.now());
               setPlanetY(0);
               setGamePhase('playing');
+              stateRef.current.gamePhase = 'playing';
               setFeedback(null);
               setSelectedChoice(-1);
-              stateRef.current.questionIndex = payload.questionIndex;
-              stateRef.current.subIndex = 0;
-              stateRef.current.gamePhase = 'playing';
             }
             break;
 
@@ -295,13 +254,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
               playGameComplete();
             }
             break;
-
-          case 'next-dan':
-            if (!isHost && active) {
-              setCurrentDan(payload.dan);
-              stateRef.current.currentDan = payload.dan;
-            }
-            break;
         }
       } catch (e) {
         console.error('broadcast handler error:', e);
@@ -312,24 +264,25 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     return () => { active = false; };
   }, [roomChannel, isHost]);
 
-  // Apply answer result (shared logic for host + non-host)
-  // Score is shared equally by ALL players, contributions only track solve count
+  // Apply answer result
   const applyAnswerResult = (answerNick, correct, score) => {
     if (correct) {
       playCorrect();
       setFlashColor('rgba(0, 255, 0, 0.15)');
       setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score, answerNick });
 
-      // 기술명 표시 (정답자의 캐릭터 기반)
+      // Skill name
       setContributions((prev) => {
         const charId = prev[answerNick]?.equippedCharacter || 0;
-        const palette = CHARACTER_PALETTES[charId];
-        const skillColor = palette?.colors?.[1] || '#ffd700';
-        setSkillName({ text: getRandomSkill(charId), color: skillColor });
+        try {
+          const palette = CHARACTER_PALETTES?.[charId];
+          const skillColor = palette?.colors?.[1] || '#ffd700';
+          setSkillName({ text: getRandomSkill(charId), color: skillColor });
+        } catch (e) { /* ignore */ }
         return prev;
       });
 
-      // Track who solved it (contribution count only)
+      // +1 기여도
       setContributions((prev) => ({
         ...prev,
         [answerNick]: {
@@ -337,7 +290,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           correctCount: (prev[answerNick]?.correctCount || 0) + 1,
         },
       }));
-      // Everyone gets the same score
       setTotalSessionScore((s) => s + score);
 
       setParticles(Array.from({ length: 8 }, (_, i) => ({
@@ -353,7 +305,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         setParticles([]);
         setSelectedChoice(-1);
         setSkillName(null);
-        advanceQuestion();
+        advanceAfterCorrect();
       }, 800);
     } else {
       playWrong();
@@ -361,9 +313,17 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setFlashColor('rgba(255, 0, 0, 0.15)');
       setFeedback({ type: 'wrong', text: `${answerNick} ${score}`, score });
 
-      // Penalty is also shared by all
+      // -1 기여도
+      setContributions((prev) => ({
+        ...prev,
+        [answerNick]: {
+          ...prev[answerNick],
+          correctCount: (prev[answerNick]?.correctCount || 0) - 1,
+        },
+      }));
       setTotalSessionScore((s) => s + score);
 
+      // Wrong answer: question stays the same (don't advance)
       setTimeout(() => {
         setShake(false);
         setFlashColor(null);
@@ -373,44 +333,57 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     }
   };
 
-  // Advance to next sub-question or next planet
-  const advanceQuestion = () => {
+  // Advance after correct answer
+  const advanceAfterCorrect = () => {
     const s = stateRef.current;
-    const nextSub = s.subIndex + 1;
+    const newSolved = s.solvedInPlanet + 1;
 
-    if (nextSub >= QUESTIONS_PER_PLANET) {
+    if (newSolved >= QUESTIONS_PER_PLANET) {
+      // Planet cleared!
       playExplosion();
-      const nextQIndex = s.questionIndex + 1;
-      if (nextQIndex * QUESTIONS_PER_PLANET >= s.allQuestions.length) {
-        // Dan complete
+
+      const nextQIndex = s.qIndex + 1;
+      if (nextQIndex >= s.questions.length) {
+        // Dan complete! All 9 questions solved
         if (isHost) handleDanComplete();
       } else {
-        // Next planet
+        // Next planet, continue with next question
         if (isHost) {
-          broadcastGame(roomChannel, { type: 'next-planet', questionIndex: nextQIndex });
+          broadcastGame(roomChannel, { type: 'next-planet' });
         }
-        setQuestionIndex(nextQIndex);
-        setSubIndex(0);
+        setQIndex(nextQIndex);
+        stateRef.current.qIndex = nextQIndex;
+        setSolvedInPlanet(0);
+        stateRef.current.solvedInPlanet = 0;
         setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
         setPlanetStartTime(Date.now());
         setPlanetY(0);
         setFeedback(null);
         setSelectedChoice(-1);
-        stateRef.current.questionIndex = nextQIndex;
-        stateRef.current.subIndex = 0;
       }
     } else {
-      setSubIndex(nextSub);
-      stateRef.current.subIndex = nextSub;
+      // Next question in same planet
+      const nextQIndex = s.qIndex + 1;
+      if (nextQIndex >= s.questions.length) {
+        // Dan complete even if planet not full
+        if (isHost) handleDanComplete();
+      } else {
+        setQIndex(nextQIndex);
+        stateRef.current.qIndex = nextQIndex;
+        setSolvedInPlanet(newSolved);
+        stateRef.current.solvedInPlanet = newSolved;
+      }
     }
   };
 
-  const handlePlanetCrash = (remaining) => {
+  const handlePlanetCrash = () => {
+    // Planet crashed: penalty for remaining unsolved questions in this planet group
+    const remaining = QUESTIONS_PER_PLANET - stateRef.current.solvedInPlanet;
     const penalty = remaining * Math.abs(WRONG_PENALTY) * SCORE_MULTIPLIER;
     setTotalSessionScore((s) => s - penalty);
     setShake(true);
     setFlashColor('rgba(255, 0, 0, 0.3)');
-    setFeedback({ type: 'wrong', text: `미해결 ${remaining}개! -${penalty}P`, score: -penalty });
+    setFeedback({ type: 'wrong', text: `충돌! -${penalty}P`, score: -penalty });
 
     if (isHost) {
       broadcastGame(roomChannel, { type: 'planet-crash', remaining, penalty });
@@ -421,22 +394,21 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setFlashColor(null);
       setFeedback(null);
 
+      // Reset planet but keep current question (unsolved questions stay)
+      setSolvedInPlanet(0);
+      stateRef.current.solvedInPlanet = 0;
+
       const s = stateRef.current;
-      const nextQIndex = s.questionIndex + 1;
-      if (nextQIndex * QUESTIONS_PER_PLANET >= s.allQuestions.length) {
+      if (s.qIndex >= s.questions.length) {
         if (isHost) handleDanComplete();
       } else {
         if (isHost) {
-          broadcastGame(roomChannel, { type: 'next-planet', questionIndex: nextQIndex });
+          broadcastGame(roomChannel, { type: 'next-planet' });
         }
-        setQuestionIndex(nextQIndex);
-        setSubIndex(0);
         setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
         setPlanetStartTime(Date.now());
         setPlanetY(0);
         setGamePhase('playing');
-        stateRef.current.questionIndex = nextQIndex;
-        stateRef.current.subIndex = 0;
         stateRef.current.gamePhase = 'playing';
       }
     }, 1500);
@@ -458,26 +430,21 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setTimeout(() => {
         setCurrentDan(nextDan);
         stateRef.current.currentDan = nextDan;
-        broadcastGame(roomChannel, { type: 'next-dan', dan: nextDan });
-        startDan(nextDan);
+        const seed = Date.now();
+        startNewDan(nextDan, seed);
+        broadcastGame(roomChannel, { type: 'dan-start', dan: nextDan, seed });
       }, 3000);
     }
   };
 
   const handleAnswer = (answer) => {
     if (stateRef.current.gamePhase !== 'playing') return;
-    const s = stateRef.current;
-    const pqs = s.allQuestions.slice(
-      s.questionIndex * QUESTIONS_PER_PLANET,
-      (s.questionIndex + 1) * QUESTIONS_PER_PLANET
-    );
-    const q = pqs[s.subIndex];
+    const q = stateRef.current.questions[stateRef.current.qIndex];
     if (!q) return;
 
     setSelectedChoice(answer);
 
     if (isHost) {
-      // Process locally
       const correct = answer === q.answer;
       const elapsed = subStartTimeRef.current ? (Date.now() - subStartTimeRef.current) / 1000 : 10;
       const score = correct
@@ -490,7 +457,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         correct,
         score,
       });
-
       applyAnswerResult(nickname, correct, score);
     } else {
       broadcastGame(roomChannel, {
@@ -508,10 +474,9 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     onEnd(stateRef.current.totalSessionScore);
   };
 
-  // Keyboard controls
+  // Keyboard
   useEffect(() => {
     if (gamePhase !== 'playing' || !currentQuestion) return;
-
     const handleKey = (e) => {
       if (e.key >= '1' && e.key <= '4') {
         const idx = parseInt(e.key) - 1;
@@ -523,14 +488,17 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [gamePhase, choices, currentQuestion]);
 
-  // Sorted contributions
   const sortedContributions = Object.entries(contributions)
     .map(([name, data]) => ({ name, ...data }))
     .sort((a, b) => b.correctCount - a.correctCount);
 
   const planetSprite = PLANET_SPRITES[currentPlanet];
 
-  // === ERROR SCREEN ===
+  // Progress: how many questions solved in this dan
+  const totalInDan = questions.length;
+  const solvedInDan = qIndex;
+
+  // === ERROR ===
   if (error) {
     return (
       <div className="game-container" style={{ justifyContent: 'center' }}>
@@ -589,7 +557,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
 
       <div className="hud">
         <span>{currentDan}단</span>
-        <span style={{ fontSize: 10, color: '#aaa' }}>{subIndex + 1}/{QUESTIONS_PER_PLANET}</span>
+        <span style={{ fontSize: 10, color: '#aaa' }}>{solvedInDan}/{totalInDan}</span>
         <span className="hud-score">{(player.score + totalSessionScore).toLocaleString()} P</span>
       </div>
 
@@ -604,6 +572,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         }}
       >종료</button>
 
+      {/* Timer bar */}
       <div style={{ width: '100%', height: 6, background: '#1a1a4e', marginBottom: 10, border: '1px solid #333366' }}>
         <div style={{
           width: `${(1 - planetY) * 100}%`, height: '100%',
@@ -617,10 +586,10 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         overflow: 'hidden', minHeight: 300,
       }}>
+        {/* Planet + question */}
         <div style={{
           position: 'absolute', top: `${planetY * 55}%`, left: '50%',
           transform: 'translateX(-50%)', textAlign: 'center',
-          opacity: feedback?.type === 'correct' && subIndex === QUESTIONS_PER_PLANET - 1 ? 0 : 1,
         }}>
           <div style={{
             width: 120, height: 120, margin: '0 auto 8px',
@@ -647,10 +616,11 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
             {currentQuestion.a} x {currentQuestion.b} = ?
           </div>
           <div style={{ fontSize: 9, color: '#aaa', marginTop: 4 }}>
-            남은 문제: {QUESTIONS_PER_PLANET - subIndex}
+            행성 {solvedInPlanet + 1}/{QUESTIONS_PER_PLANET}
           </div>
         </div>
 
+        {/* Particles */}
         {particles.map((p) => (
           <div key={p.id} style={{
             position: 'absolute', top: `${planetY * 55}%`,
@@ -660,6 +630,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           }} />
         ))}
 
+        {/* Feedback */}
         {feedback && (
           <div style={{
             position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
@@ -679,8 +650,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
             key={Date.now()}
             className="skill-name-popup"
             style={{
-              top: '55%',
-              left: '50%',
+              top: '55%', left: '50%',
               color: skillName.color,
               textShadow: `2px 2px 0 #000, -1px -1px 0 #000, 0 0 10px ${skillName.color}`,
             }}
@@ -689,6 +659,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           </div>
         )}
 
+        {/* Players on earth */}
         <div style={{
           position: 'absolute', bottom: -120, left: '50%',
           transform: 'translateX(-50%)',
@@ -722,6 +693,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           <EarthCanvas />
         </div>
 
+        {/* Contribution board */}
         <div style={{
           position: 'absolute', top: 8, right: 8,
           fontFamily: "'Press Start 2P', monospace", zIndex: 1,
@@ -741,10 +713,11 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         </div>
       </div>
 
+      {/* Choices */}
       <div className="choices-grid">
         {choices.map((choice, idx) => (
           <button
-            key={`${questionIndex}-${subIndex}-${idx}`}
+            key={`${currentDan}-${qIndex}-${idx}`}
             className={`choice-btn ${selectedChoice === choice ? (choice === currentQuestion?.answer ? 'correct' : 'wrong') : ''}`}
             onClick={() => handleAnswer(choice)}
             disabled={gamePhase !== 'playing'}
