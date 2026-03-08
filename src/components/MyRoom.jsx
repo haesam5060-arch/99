@@ -1091,8 +1091,33 @@ export default function MyRoom({ player, nickname, onBack }) {
     }));
   };
 
+  // 디버깅: 렌더 시 크래시 감지
+  let renderError = null;
+  try {
+    // 렌더링 전 검증
+    if (!player) renderError = 'player is null';
+    if (!nickname) renderError = 'nickname is empty';
+    if (!Array.isArray(layout)) renderError = 'layout is not array: ' + typeof layout;
+    if (!Array.isArray(charStates)) renderError = 'charStates is not array';
+  } catch (e) {
+    renderError = e.message;
+  }
+
+  if (renderError) {
+    return (
+      <div style={{ color: '#ff0', padding: 40, fontSize: 16, fontFamily: 'monospace', zIndex: 99999, position: 'relative' }}>
+        <div style={{ color: '#f44', fontSize: 20, marginBottom: 10 }}>MyRoom 렌더 에러</div>
+        <div>{renderError}</div>
+        <button onClick={onBack} style={{ marginTop: 20, padding: '10px 20px', fontSize: 14 }}>돌아가기</button>
+      </div>
+    );
+  }
+
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
+      <div style={{ color: '#0f0', fontSize: 8, fontFamily: 'monospace', marginBottom: 4 }}>
+        [DEBUG] MyRoom OK - chars:{charStates.length} layout:{layout.length} eq:{equippedId}
+      </div>
       <style>{`
         @keyframes quizShake {
           0%, 100% { transform: translateX(0); }
