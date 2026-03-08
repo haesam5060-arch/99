@@ -361,25 +361,32 @@ export default function GamePlay({
         <span className="hud-score">
           {(player.score + totalSessionScore).toLocaleString()} P
         </span>
-        <button
-          onClick={() => {
-            cancelAnimationFrame(animRef.current);
-            stopBGM();
-            setQuitResult({ totalScore: totalSessionScore });
-          }}
-          style={{
-            background: 'none',
-            border: '2px solid #ff4444',
-            color: '#ff4444',
-            fontFamily: "'Press Start 2P', monospace",
-            fontSize: 9,
-            padding: '4px 10px',
-            cursor: 'pointer',
-          }}
-        >
-          종료
-        </button>
       </div>
+
+      {/* Quit button - fixed top-left */}
+      <button
+        onClick={() => {
+          cancelAnimationFrame(animRef.current);
+          stopBGM();
+          setQuitResult({ totalScore: totalSessionScore });
+        }}
+        style={{
+          position: 'fixed',
+          top: 10,
+          left: 10,
+          zIndex: 1000,
+          background: 'rgba(20, 20, 50, 0.8)',
+          border: '2px solid #ff4444',
+          color: '#ff4444',
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: 9,
+          padding: '6px 12px',
+          cursor: 'pointer',
+          borderRadius: 4,
+        }}
+      >
+        종료
+      </button>
 
       {/* Timer bar */}
       <div style={{
