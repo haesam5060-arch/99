@@ -192,6 +192,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [doorOpen, setDoorOpen] = useState(false);
   const [ballPositions, setBallPositions] = useState({}); // { layoutIdx: { x, y } } 가상좌표
   const ballPhysicsRef = useRef({}); // { layoutIdx: { x, y, vx, vy } } 가상좌표
+  const charStatesRef = useRef([]); // 축구공 물리용 최신 캐릭터 상태 참조
   const roomRef = useRef(null);
   const animFrameRef = useRef(null);
 
@@ -262,17 +263,27 @@ export default function MyRoom({ player, nickname, onBack }) {
   // 가구 상호작용 위치 (실제 px) - 같은 타입 가구 중 랜덤 선택
   const findInteraction = useCallback((type) => {
     const matches = [];
-    for (const item of layout) {
+    for (let i = 0; i < layout.length; i++) {
+      const item = layout[i];
       const f = FURNITURE_DEFS[item.id];
       if (f?.interaction === type) {
-        const px = (item.x / 300) * roomSize.w + (f.w * SCALE) / 2;
-        const py = (item.y / 200) * roomSize.h;
+        // 축구공은 동적 위치(ballPhysicsRef) 사용
+        let vx = item.x, vy = item.y;
+        if (item.id === 'soccerBall' && ballPhysicsRef.current[i]) {
+          vx = ballPhysicsRef.current[i].x;
+          vy = ballPhysicsRef.current[i].y;
+        }
+        const px = (vx / 300) * roomSize.w + (f.w * SCALE) / 2;
+        const py = (vy / 200) * roomSize.h;
         matches.push({ x: px, y: py });
       }
     }
     if (matches.length === 0) return null;
     return matches[Math.floor(Math.random() * matches.length)];
   }, [layout, roomSize]);
+
+  // charStatesRef 동기화 (축구공 물리에서 최신 상태 참조용)
+  useEffect(() => { charStatesRef.current = charStates; }, [charStates]);
 
   // 캐릭터 AI 루프
   useEffect(() => {
@@ -419,7 +430,9 @@ export default function MyRoom({ player, nickname, onBack }) {
         if (['play', 'watch', 'music', 'ball'].includes(newAction)) {
           const pos = findInteraction(newAction);
           if (pos && Math.abs(ch.x - pos.x) > 40) {
-            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: newAction };
+            const approachSpeech = newAction === 'ball' ? '심심한데 축구나 할까?' : null;
+            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: newAction,
+              ...(approachSpeech ? { speech: approachSpeech, speechTimer: now + 2500 } : {}) };
           }
           const actionSpeech = INTERACTION_SPEECH[newAction][Math.floor(Math.random() * INTERACTION_SPEECH[newAction].length)];
           return { ...ch, action: newAction, targetX: null, targetY: null, actionTimer: now + duration, interacting: newAction, speech: actionSpeech, speechTimer: now + 2500 };
@@ -465,7 +478,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         const f = FURNITURE_DEFS[layout[idx].id];
 
         // 캐릭터 충돌 감지 (px → 가상좌표 변환)
-        charStates.forEach(ch => {
+        charStatesRef.current.forEach(ch => {
           if (ch.hidden || ch.action === 'sleep') return;
           const chVx = (ch.x / roomSize.w) * 300;
           const chVy = (ch.y / roomSize.h) * 200;
@@ -522,7 +535,7 @@ export default function MyRoom({ player, nickname, onBack }) {
 
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [editMode, findInteraction, roomSize, layout, charStates]);
+  }, [editMode, findInteraction, roomSize, layout]);
 
   const handleRemoveFurniture = (idx) => {
     playClick();
@@ -660,7 +673,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 left: `${(renderX / 300) * 100}%`,
                 top: `${(renderY / 200) * 100}%`,
                 cursor: editMode ? 'grab' : 'default',
-                zIndex: f.wallMount ? 1 : Math.floor(renderY) + 10,
+                zIndex: f.wallMount ? 1 : Math.floor((renderY / 200) * roomSize.h),
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
                 transition: (dragging?.idx === idx || dynamicPos) ? 'none' : 'left 0.1s, top 0.1s',
                 touchAction: 'none',
