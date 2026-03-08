@@ -349,61 +349,88 @@ export function leaveVisitRoom(channel) {
   supabase.removeChannel(channel);
 }
 
-// ── 로비 시스템 (방문 요청/승낙) ──
+// ── 로비 시스템 (Presence 기반 방문 요청/승낙) ──
 
-// 개인 로비 채널 구독 (내 방에서 방문 요청을 수신)
+// 호스트: 개인 로비 채널 (Presence로 방문 요청 감지)
 export function joinLobby(nickname, { onVisitRequest }) {
   if (!supabase) return null;
   const channel = supabase.channel(`lobby-${nickname}`, {
-    config: { broadcast: { self: false, ack: false } },
+    config: { presence: { key: 'host' } },
   });
-  channel.on('broadcast', { event: 'visit-request' }, ({ payload }) => {
-    if (onVisitRequest) onVisitRequest(payload);
+
+  channel.on('presence', { event: 'sync' }, () => {
+    const state = channel.presenceState();
+    // host 키 외의 모든 presence = 방문 요청자
+    Object.entries(state).forEach(([key, presences]) => {
+      if (key === 'host') return;
+      presences.forEach(p => {
+        if (p.action === 'visit-request' && onVisitRequest) {
+          onVisitRequest({ from: p.nickname, characterId: p.characterId });
+        }
+      });
+    });
   });
-  // visit-response 이벤트도 등록 (서버 라우팅용)
-  channel.on('broadcast', { event: 'visit-response' }, () => {});
-  channel.subscribe();
+
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      await channel.track({ nickname, role: 'host' });
+    }
+  });
   return channel;
 }
 
-// 방문 요청 보내기 (게스트 → 호스트 로비 채널에 접속 후 요청)
+// 게스트: 호스트 로비에 접속하여 방문 요청 (Presence로)
 export function sendVisitRequest(hostNickname, fromNickname, fromCharId, { onAccepted, onDeclined }) {
   if (!supabase) return null;
   const channel = supabase.channel(`lobby-${hostNickname}`, {
-    config: { broadcast: { self: false, ack: false } },
+    config: { presence: { key: fromNickname } },
   });
-  channel.on('broadcast', { event: 'visit-response' }, ({ payload }) => {
-    if (payload.to === fromNickname) {
-      if (payload.accepted) { if (onAccepted) onAccepted(); }
-      else { if (onDeclined) onDeclined(); }
-    }
+
+  let responded = false;
+  channel.on('presence', { event: 'sync' }, () => {
+    if (responded) return;
+    const state = channel.presenceState();
+    const hostPresences = state['host'] || [];
+    hostPresences.forEach(p => {
+      if (p.acceptedVisitor === fromNickname) {
+        responded = true;
+        if (onAccepted) onAccepted();
+      }
+      if (p.declinedVisitor === fromNickname) {
+        responded = true;
+        if (onDeclined) onDeclined();
+      }
+    });
   });
-  channel.on('broadcast', { event: 'visit-request' }, () => {});
-  channel.subscribe((status) => {
+
+  channel.subscribe(async (status) => {
     if (status === 'SUBSCRIBED') {
-      channel.send({
-        type: 'broadcast',
-        event: 'visit-request',
-        payload: { from: fromNickname, characterId: fromCharId },
+      await channel.track({
+        nickname: fromNickname,
+        action: 'visit-request',
+        characterId: fromCharId,
       });
     }
   });
   return channel;
 }
 
-// 방문 승낙/거절 (호스트 → 자기 로비 채널에서 응답)
-export function respondVisitRequest(lobbyChannel, visitorNickname, accepted) {
+// 호스트: 방문 승낙/거절 (Presence 상태 업데이트)
+export function respondVisitRequest(lobbyChannel, nickname, visitorNickname, accepted) {
   if (!lobbyChannel) return;
-  lobbyChannel.send({
-    type: 'broadcast',
-    event: 'visit-response',
-    payload: { to: visitorNickname, accepted },
+  lobbyChannel.track({
+    nickname,
+    role: 'host',
+    ...(accepted
+      ? { acceptedVisitor: visitorNickname }
+      : { declinedVisitor: visitorNickname }),
   });
 }
 
 // 로비 채널 나가기
 export function leaveLobby(channel) {
   if (!channel || !supabase) return;
+  channel.untrack();
   supabase.removeChannel(channel);
 }
 

@@ -512,7 +512,11 @@ export default function MyRoom({ player, nickname, onBack }) {
       onVisitRequest: (payload) => {
         // 이미 방문 중이거나 다른 요청 처리 중이면 무시
         if (visitModeRef.current === 'visiting' || hostChannelRef.current) return;
-        setVisitRequest({ from: payload.from, characterId: payload.characterId });
+        setVisitRequest(prev => {
+          // 같은 요청이 이미 있으면 무시 (Presence sync 반복 호출 방지)
+          if (prev && prev.from === payload.from) return prev;
+          return { from: payload.from, characterId: payload.characterId };
+        });
       },
     });
     lobbyChannelRef.current = ch;
@@ -585,7 +589,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       onReady: () => {
         hostChannelReadyRef.current = true;
         // 2. 채널 준비 완료 후 승낙 응답 전송
-        respondVisitRequest(lobbyChannelRef.current, visitRequest.from, true);
+        respondVisitRequest(lobbyChannelRef.current, nickname, visitRequest.from, true);
       },
     });
     hostChannelRef.current = ch;
@@ -595,7 +599,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   // 호스트: 방문 요청 거절
   const handleDeclineVisit = useCallback(() => {
     if (!visitRequest) return;
-    respondVisitRequest(lobbyChannelRef.current, visitRequest.from, false);
+    respondVisitRequest(lobbyChannelRef.current, nickname, visitRequest.from, false);
     setVisitRequest(null);
   }, [visitRequest]);
 
