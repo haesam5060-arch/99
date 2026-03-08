@@ -46,7 +46,6 @@ export default function GamePlay({
   const [totalWrongCount, setTotalWrongCount] = useState(0); // track total wrong across all dans
   const [perfectClear, setPerfectClear] = useState(null); // { bonus } when 2-9단 perfect
   const [rankings, setRankings] = useState([]); // top 10
-  const [showRanking, setShowRanking] = useState(false);
 
   const animRef = useRef(null);
   const containerRef = useRef(null);
@@ -396,38 +395,14 @@ export default function GamePlay({
         종료
       </button>
 
-      {/* Ranking toggle button */}
-      <button
-        onClick={() => setShowRanking((v) => !v)}
-        style={{
-          position: 'fixed',
-          top: 10,
-          left: 70,
-          zIndex: 1000,
-          background: showRanking ? 'rgba(255, 215, 0, 0.2)' : 'rgba(20, 20, 50, 0.8)',
-          border: `2px solid ${showRanking ? '#ffd700' : '#6af'}`,
-          color: showRanking ? '#ffd700' : '#6af',
-          fontFamily: "'Press Start 2P', monospace",
-          fontSize: 8,
-          padding: '6px 8px',
-          cursor: 'pointer',
-          borderRadius: 4,
-        }}
-      >
-        랭킹
-      </button>
-
-      {/* Live ranking board */}
-      {showRanking && rankings.length > 0 && (() => {
-        const myCurrentScore = player.score + totalSessionScore;
-        // Build live ranking list with my live score inserted
+      {/* Background live ranking - always visible */}
+      {rankings.length > 0 && (() => {
         const liveList = rankings
           .map((r) => ({ ...r, isMe: r.name === nickname }))
           .filter((r) => r.name !== nickname);
-        // Add current player
         const myEntry = rankings.find((r) => r.name === nickname);
         const myTotalEarned = (myEntry?.totalEarned || 0) + Math.max(0, totalSessionScore);
-        liveList.push({ name: nickname, totalEarned: myTotalEarned, score: myCurrentScore, isMe: true });
+        liveList.push({ name: nickname, totalEarned: myTotalEarned, score: player.score + totalSessionScore, isMe: true });
         liveList.sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
         const top10 = liveList.slice(0, 10);
         const myRank = liveList.findIndex((r) => r.isMe) + 1;
@@ -435,67 +410,48 @@ export default function GamePlay({
 
         return (
           <div style={{
-            position: 'fixed',
-            top: 45,
-            left: 10,
-            zIndex: 999,
-            background: 'rgba(10, 10, 40, 0.92)',
-            border: '2px solid #333366',
-            borderRadius: 6,
-            padding: '10px 12px',
-            width: 200,
+            position: 'absolute',
+            top: '50%',
+            right: 8,
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
             fontFamily: "'Press Start 2P', monospace",
+            zIndex: 1,
           }}>
-            <div style={{ fontSize: 9, color: '#ffd700', marginBottom: 8, textAlign: 'center' }}>
-              이번 주 TOP 10
-            </div>
             {top10.map((r, i) => (
               <div key={r.name} style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: 8,
+                fontSize: 7,
                 padding: '3px 0',
-                color: r.isMe ? '#ffd700' : '#ccc',
-                background: r.isMe ? 'rgba(255, 215, 0, 0.1)' : 'transparent',
-                borderRadius: 2,
-                paddingLeft: 4,
-                paddingRight: 4,
+                color: r.isMe ? 'rgba(255, 215, 0, 0.5)' : 'rgba(255, 255, 255, 0.15)',
+                whiteSpace: 'nowrap',
+                textAlign: 'right',
+                transition: 'all 0.3s ease',
               }}>
                 <span style={{
-                  color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#888',
-                  width: 20,
+                  color: r.isMe
+                    ? 'rgba(255, 215, 0, 0.6)'
+                    : i === 0 ? 'rgba(255, 215, 0, 0.3)'
+                    : i === 1 ? 'rgba(192, 192, 192, 0.3)'
+                    : i === 2 ? 'rgba(205, 127, 50, 0.3)'
+                    : 'rgba(136, 136, 136, 0.2)',
                 }}>
-                  {i + 1}
+                  {i + 1}위
                 </span>
-                <span style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {r.name}{r.isMe ? ' (나)' : ''}
-                </span>
-                <span style={{ color: r.isMe ? '#ffd700' : '#aaa', marginLeft: 6 }}>
-                  {r.totalEarned.toLocaleString()}
-                </span>
+                {' '}
+                <span>{r.name}</span>
+                {r.isMe && <span style={{ color: 'rgba(255, 215, 0, 0.4)', fontSize: 6 }}> ←</span>}
               </div>
             ))}
             {!inTop10 && (
               <div style={{
-                marginTop: 6,
-                paddingTop: 6,
-                borderTop: '1px solid #333366',
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: 8,
-                color: '#ffd700',
-                paddingLeft: 4,
-                paddingRight: 4,
+                marginTop: 4,
+                fontSize: 7,
+                color: 'rgba(255, 215, 0, 0.5)',
+                textAlign: 'right',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                paddingTop: 4,
               }}>
-                <span>{myRank}위</span>
-                <span>{nickname} (나)</span>
-                <span>{myTotalEarned.toLocaleString()}</span>
+                {myRank}위 {nickname} ←
               </div>
             )}
           </div>
