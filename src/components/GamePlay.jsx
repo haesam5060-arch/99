@@ -435,6 +435,28 @@ export default function GamePlay({
             justifyContent: 'center',
             position: 'relative',
           }}>
+            {/* Falling trail */}
+            {planetY > 0.05 && gamePhase === 'playing' && (
+              <>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      top: -(12 + i * 14),
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: Math.max(4, 10 - i * 2),
+                      height: Math.max(4, 10 - i * 2),
+                      borderRadius: '50%',
+                      background: planetSprite.colors[1],
+                      opacity: 0.5 - i * 0.1,
+                      filter: `blur(${i}px)`,
+                    }}
+                  />
+                ))}
+              </>
+            )}
             <PlanetCanvas sprite={planetSprite} size={60} />
           </div>
           <div style={{
