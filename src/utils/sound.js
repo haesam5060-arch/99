@@ -153,6 +153,50 @@ export function playExplosion() {
   source.start();
 }
 
+// Goal celebration (whistle + fanfare)
+export function playGoal() {
+  if (muted) return;
+  resumeCtx();
+  const ctx = getCtx();
+  // 휘슬 (높은 사인파)
+  const whistle = ctx.createOscillator();
+  const wGain = ctx.createGain();
+  whistle.type = 'sine';
+  whistle.frequency.setValueAtTime(2800, ctx.currentTime);
+  whistle.frequency.setValueAtTime(3200, ctx.currentTime + 0.15);
+  whistle.frequency.setValueAtTime(2800, ctx.currentTime + 0.3);
+  wGain.gain.setValueAtTime(0.12, ctx.currentTime);
+  wGain.gain.setValueAtTime(0.12, ctx.currentTime + 0.3);
+  wGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+  whistle.connect(wGain);
+  wGain.connect(ctx.destination);
+  whistle.start(ctx.currentTime);
+  whistle.stop(ctx.currentTime + 0.45);
+  // 팡파레 (휘슬 직후)
+  const fanfare = [
+    [523, 0.1],  // C5
+    [659, 0.1],  // E5
+    [784, 0.1],  // G5
+    [1047, 0.12], // C6
+    [784, 0.08],  // G5
+    [1047, 0.3],  // C6 (길게)
+  ];
+  let time = ctx.currentTime + 0.5;
+  fanfare.forEach(([freq, dur]) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, time);
+    gain.gain.setValueAtTime(0.1, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(time);
+    osc.stop(time + dur);
+    time += dur;
+  });
+}
+
 // BGM - simple looping melody
 let bgmInterval = null;
 const BGM_NOTES_MENU = [

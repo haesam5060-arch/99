@@ -8,15 +8,15 @@ import { updatePlayerScore } from '../utils/storage';
 
 const SCALE = 2;
 
-// calc() 포지셔닝에 맞는 가구 픽셀 좌표 변환
-// CSS: left = calc(X% - X% * pixelW) → 실제 px = (vx/300)*(roomW - pixelW)
+// left: X% 포지셔닝에 맞는 가구 픽셀 좌표 변환
+// CSS: left = (vx/300)*100% → 실제 px = (vx/300)*clientWidth
 function furniturePx(vx, vy, f, rw, rh) {
   const pw = f.w * SCALE, ph = f.h * SCALE;
   return {
-    left: (vx / 300) * (rw - pw),
-    top: (vy / 200) * (rh - ph),
-    cx: (vx / 300) * (rw - pw) + pw / 2,
-    cy: (vy / 200) * (rh - ph) + ph / 2,
+    left: (vx / 300) * rw,
+    top: (vy / 200) * rh,
+    cx: (vx / 300) * rw + pw / 2,
+    cy: (vy / 200) * rh + ph / 2,
   };
 }
 
@@ -1185,11 +1185,14 @@ export default function MyRoom({ player, nickname, onBack }) {
           bp.vy *= BALL_FRICTION;
 
           // 벽 반사
+          const rsW = roomSizeRef.current.w || 1, rsH = roomSizeRef.current.h || 1;
+          const maxBX = 300 * (1 - f.w * SCALE / rsW);
+          const maxBY = 200 * (1 - f.h * SCALE / rsH);
           const minY = 60; // 바닥 영역만
           if (bp.x < 0) { bp.x = 0; bp.vx = Math.abs(bp.vx) * 0.7; }
-          if (bp.x > 300) { bp.x = 300; bp.vx = -Math.abs(bp.vx) * 0.7; }
+          if (bp.x > maxBX) { bp.x = maxBX; bp.vx = -Math.abs(bp.vx) * 0.7; }
           if (bp.y < minY) { bp.y = minY; bp.vy = Math.abs(bp.vy) * 0.7; }
-          if (bp.y > 200) { bp.y = 200; bp.vy = -Math.abs(bp.vy) * 0.7; }
+          if (bp.y > maxBY) { bp.y = maxBY; bp.vy = -Math.abs(bp.vy) * 0.7; }
 
           // 멈춤 처리
           if (Math.abs(bp.vx) < BALL_MIN_SPEED) bp.vx = 0;
@@ -1313,10 +1316,13 @@ export default function MyRoom({ player, nickname, onBack }) {
     const vy = ((e.clientY - rect.top) / rect.height) * 200 - drag.offsetY;
     setLayout(prev => prev.map((item, i) => {
       if (i !== drag.idx) return item;
+      const f = FURNITURE_DEFS[item.id];
+      const cw = roomRef.current.clientWidth || 1;
+      const ch = roomRef.current.clientHeight || 1;
       return {
         ...item,
-        x: Math.max(0, Math.min(300, vx)),
-        y: Math.max(0, Math.min(200, vy)),
+        x: Math.max(0, Math.min(300 * (1 - f.w * SCALE / cw), vx)),
+        y: Math.max(0, Math.min(200 * (1 - f.h * SCALE / ch), vy)),
       };
     }));
   };
@@ -1579,8 +1585,8 @@ export default function MyRoom({ player, nickname, onBack }) {
               onPointerUp={handlePointerUp}
               style={{
                 position: 'absolute',
-                left: `calc(${(renderX / 300) * 100}% - ${(renderX / 300) * f.w * SCALE}px)`,
-                top: `calc(${(renderY / 200) * 100}% - ${(renderY / 200) * f.h * SCALE}px)`,
+                left: `${(renderX / 300) * 100}%`,
+                top: `${(renderY / 200) * 100}%`,
                 cursor: editMode ? 'grab' : 'default',
                 zIndex: f.wallMount ? 1 : Math.floor((renderY / 200) * roomSize.h),
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
