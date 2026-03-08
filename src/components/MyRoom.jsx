@@ -1262,8 +1262,8 @@ export default function MyRoom({ player, nickname, onBack }) {
 
           // 벽 반사
           const rsW = roomSizeRef.current.w || 1, rsH = roomSizeRef.current.h || 1;
-          const maxBX = 300 * (1 - f.w * SCALE / rsW);
-          const maxBY = 200 * (1 - f.h * SCALE / rsH);
+          const maxBX = 300 - (f.w * SCALE / rsW) * 300;
+          const maxBY = 200 - (f.h * SCALE / rsH) * 200;
           const minY = 60; // 바닥 영역만
           if (bp.x < 0) { bp.x = 0; bp.vx = Math.abs(bp.vx) * 0.7; }
           if (bp.x > maxBX) { bp.x = maxBX; bp.vx = -Math.abs(bp.vx) * 0.7; }
@@ -1394,12 +1394,10 @@ export default function MyRoom({ player, nickname, onBack }) {
     setLayout(prev => prev.map((item, i) => {
       if (i !== drag.idx) return item;
       const f = FURNITURE_DEFS[item.id];
-      const cw = roomRef.current.clientWidth || 1;
-      const ch = roomRef.current.clientHeight || 1;
       return {
         ...item,
-        x: Math.max(0, Math.min(300 * (1 - f.w * SCALE / cw), vx)),
-        y: Math.max(0, Math.min(200 * (1 - f.h * SCALE / ch), vy)),
+        x: Math.max(0, Math.min(300 - (f.w * SCALE / rect.width) * 300, vx)),
+        y: Math.max(0, Math.min(200 - (f.h * SCALE / rect.height) * 200, vy)),
       };
     }));
   };
