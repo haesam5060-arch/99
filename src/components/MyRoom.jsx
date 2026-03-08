@@ -3,6 +3,7 @@ import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/c
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
+import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
 
 const SCALE = 2;
 
@@ -20,7 +21,7 @@ function randRange(min, max) {
 }
 
 // ── 가구 캔버스 ──
-function FurnitureCanvas({ furnitureId, scale = 2 }) {
+export function FurnitureCanvas({ furnitureId, scale = 2 }) {
   const canvasRef = useRef(null);
   const f = FURNITURE_DEFS[furnitureId];
 
@@ -95,7 +96,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
-  const [ownedFurniture] = useState(() => {
+  const [ownedFurniture, setOwnedFurniture] = useState(() => {
     try {
       const saved = localStorage.getItem(`room_furniture_${nickname}`);
       return saved ? JSON.parse(saved) : [];
@@ -109,6 +110,24 @@ export default function MyRoom({ player, nickname, onBack }) {
   const animFrameRef = useRef(null);
 
   const ownedCharacters = player.characters || [0];
+
+  // 온라인이면 Supabase에서 가구/레이아웃 로드
+  useEffect(() => {
+    if (!isOnline()) return;
+    (async () => {
+      const data = await getRoomData(nickname);
+      if (data) {
+        if (data.room_furniture?.length > 0) {
+          setOwnedFurniture(data.room_furniture);
+          localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(data.room_furniture));
+        }
+        if (data.room_layout?.length > 0) {
+          setLayout(data.room_layout);
+          localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(data.room_layout));
+        }
+      }
+    })();
+  }, [nickname]);
 
   // 실제 DOM 크기 추적
   useEffect(() => {
@@ -125,6 +144,10 @@ export default function MyRoom({ player, nickname, onBack }) {
 
   useEffect(() => {
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
+    if (isOnline()) {
+      const furniture = JSON.parse(localStorage.getItem(`room_furniture_${nickname}`) || '[]');
+      saveRoomData(nickname, layout, furniture);
+    }
   }, [layout, nickname]);
 
   // 바닥 영역 (실제 px) - 벽 30% 아래부터 92%까지

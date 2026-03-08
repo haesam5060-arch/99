@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
 import { getRankings } from '../utils/storage';
-import { isOnline, getOnlineRankings } from '../utils/supabase';
+import { isOnline, getOnlineRankings, getRoomData } from '../utils/supabase';
 import { playClick } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
+import RoomViewer from './RoomViewer';
 import { CHARACTER_PALETTES } from '../data/characters';
 
 const SCHOOL_CARD_ID = 13;
 
-export default function Ranking({ nickname, onBack, onBrowseRooms }) {
+export default function Ranking({ nickname, onBack }) {
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [viewingRoom, setViewingRoom] = useState(null);
+  const [roomLoading, setRoomLoading] = useState(false);
 
   const monthLabel = '이번 주';
 
@@ -27,6 +30,29 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
     }
     fetchRankings();
   }, []);
+
+  const handleViewRoom = async (entry) => {
+    playClick();
+    if (!isOnline()) return;
+    setRoomLoading(true);
+    try {
+      const data = await getRoomData(entry.name);
+      setViewingRoom({
+        name: entry.name,
+        roomLayout: data?.room_layout || [],
+        equippedCharacter: data?.equipped_character || entry.equippedCharacter || 0,
+        schoolName: data?.school_name || entry.schoolName || '',
+      });
+    } catch {
+      setViewingRoom({
+        name: entry.name,
+        roomLayout: [],
+        equippedCharacter: entry.equippedCharacter || 0,
+        schoolName: entry.schoolName || '',
+      });
+    }
+    setRoomLoading(false);
+  };
 
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 20 }}>
@@ -52,16 +78,17 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
         {/* Header */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '40px 1fr 60px 100px',
-          padding: '14px 12px',
-          fontSize: 11,
+          gridTemplateColumns: '30px 1fr 44px 36px 80px',
+          padding: '14px 10px',
+          fontSize: 10,
           color: '#888',
           borderBottom: '2px solid #333366',
           alignItems: 'center',
         }}>
           <span>순위</span>
           <span>닉네임</span>
-          <span style={{ textAlign: 'center' }}>보유 캐릭터</span>
+          <span style={{ textAlign: 'center' }}>캐릭터</span>
+          <span style={{ textAlign: 'center' }}>방</span>
           <span style={{ textAlign: 'right' }}>총 획득</span>
         </div>
 
@@ -80,8 +107,8 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
               key={entry.name}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '40px 1fr 60px 100px',
-                padding: '10px 12px',
+                gridTemplateColumns: '30px 1fr 44px 36px 80px',
+                padding: '10px 10px',
                 fontSize: 13,
                 borderBottom: '1px solid #222244',
                 background: entry.name === nickname ? 'rgba(100, 170, 255, 0.15)' : 'transparent',
@@ -92,7 +119,7 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
               <span style={{
                 color: idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#cd7f32' : '#888',
                 fontWeight: idx < 3 ? 'bold' : 'normal',
-                fontSize: 15,
+                fontSize: 14,
               }}>
                 {idx + 1}
               </span>
@@ -102,7 +129,7 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
                 whiteSpace: 'nowrap',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
               }}>
                 {entry.equippedCharacter === SCHOOL_CARD_ID ? (
                   <SchoolCardCharacter schoolName={entry.schoolName || '학교'} pixelSize={2} mode="card" />
@@ -116,7 +143,7 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
                 style={{
                   textAlign: 'center',
                   color: '#aaa',
-                  fontSize: 12,
+                  fontSize: 11,
                   cursor: 'pointer',
                   textDecoration: 'underline',
                   textDecorationColor: '#555',
@@ -124,7 +151,17 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
               >
                 {entry.characterCount + 1}
               </span>
-              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 13, whiteSpace: 'nowrap' }}>
+              <span
+                onClick={() => handleViewRoom(entry)}
+                style={{
+                  textAlign: 'center',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                🏠
+              </span>
+              <span style={{ textAlign: 'right', color: 'var(--gold)', fontSize: 12, whiteSpace: 'nowrap' }}>
                 {entry.totalEarned.toLocaleString()} P
               </span>
             </div>
@@ -139,15 +176,6 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 300 }}>
-        {onBrowseRooms && (
-          <button
-            className="pixel-btn"
-            onClick={() => { playClick(); onBrowseRooms(); }}
-            style={{ background: '#2a1a5e', borderColor: '#9966ff #6633cc #6633cc #9966ff' }}
-          >
-            방 구경하기
-          </button>
-        )}
         <button
           className="pixel-btn red"
           onClick={() => { playClick(); onBack(); }}
@@ -155,6 +183,34 @@ export default function Ranking({ nickname, onBack, onBrowseRooms }) {
           돌아가기
         </button>
       </div>
+
+      {/* Room loading indicator */}
+      {roomLoading && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 200,
+          fontSize: 14,
+          color: '#fff',
+        }}>
+          방 불러오는 중...
+        </div>
+      )}
+
+      {/* Room viewer popup */}
+      {viewingRoom && (
+        <RoomViewer
+          playerName={viewingRoom.name}
+          roomLayout={viewingRoom.roomLayout}
+          equippedCharacter={viewingRoom.equippedCharacter}
+          schoolName={viewingRoom.schoolName}
+          onClose={() => setViewingRoom(null)}
+        />
+      )}
 
       {/* Character collection popup */}
       {selectedPlayer && (

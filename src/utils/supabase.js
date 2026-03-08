@@ -187,6 +187,33 @@ export async function sellOnlineCharacter(nickname, characterId, refund) {
   return { success: true, player: data };
 }
 
+// Save room layout & furniture to Supabase
+export async function saveRoomData(nickname, layout, furniture) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('players')
+    .update({
+      room_layout: layout,
+      room_furniture: furniture,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('nickname', nickname)
+    .select()
+    .single();
+  return data;
+}
+
+// Get room data for a specific player
+export async function getRoomData(nickname) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('players')
+    .select('room_layout, room_furniture, characters, equipped_character, school_name')
+    .eq('nickname', nickname)
+    .single();
+  return data;
+}
+
 // Update school name
 export async function updateSchoolName(nickname, schoolName) {
   if (!supabase) return null;

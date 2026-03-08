@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { CHARACTER_PALETTES } from '../data/characters';
 import { purchaseCharacter, equipCharacter, sellCharacter, updatePlayerScore } from '../utils/storage';
-import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName, sellOnlineCharacter, updateOnlineScore } from '../utils/supabase';
+import { isOnline, purchaseOnlineCharacter, equipOnlineCharacter, updateSchoolName, sellOnlineCharacter, updateOnlineScore, saveRoomData, getRoomData } from '../utils/supabase';
 import { playClick, playPurchase, playWrong } from '../utils/sound';
 import PixelCharacter from './PixelCharacter';
 import SchoolCardCharacter from './SchoolCardCharacter';
@@ -273,6 +273,25 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     } catch { return []; }
   });
 
+  // 온라인이면 Supabase에서 가구 데이터 로드
+  useEffect(() => {
+    if (!isOnline()) return;
+    (async () => {
+      const data = await getRoomData(nickname);
+      if (data) {
+        const furniture = data.room_furniture || [];
+        const layout = data.room_layout || [];
+        if (furniture.length > 0) {
+          setOwnedFurniture(furniture);
+          localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(furniture));
+        }
+        if (layout.length > 0) {
+          localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
+        }
+      }
+    })();
+  }, [nickname]);
+
   const showMessage = (text) => {
     setMessage(text);
     setTimeout(() => setMessage(null), 1500);
@@ -408,16 +427,22 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
     // 자동 배치
     const f = FURNITURE_DEFS[furnitureId];
     const ROOM_W = 300, ROOM_H = 200, SCALE = 2;
+    let newLayout = [];
     try {
       const saved = localStorage.getItem(`room_layout_${nickname}`);
-      const layout = saved ? JSON.parse(saved) : [];
-      layout.push({
+      newLayout = saved ? JSON.parse(saved) : [];
+      newLayout.push({
         id: furnitureId,
         x: f.wallMount ? 100 + Math.random() * 80 : 20 + Math.random() * (ROOM_W - f.w * SCALE - 40),
         y: f.wallMount ? 10 + Math.random() * 30 : ROOM_H - f.h * SCALE - 5,
       });
-      localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
+      localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(newLayout));
     } catch {}
+
+    // Supabase 동기화
+    if (isOnline()) {
+      saveRoomData(nickname, newLayout, newOwned);
+    }
 
     onUpdate({ ...player, score: player.score - FURNITURE_PRICE });
     showMessage(`${f.name} 구매 완료!`);

@@ -154,7 +154,6 @@ function App() {
         <Ranking
           nickname={nickname}
           onBack={() => setScreen('main')}
-          onBrowseRooms={() => setScreen('coopLobby')}
         />
       )}
       {screen === 'help' && (
