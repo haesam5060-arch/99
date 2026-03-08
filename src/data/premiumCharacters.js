@@ -47,6 +47,10 @@ export const PREMIUM_PALETTES = {
     name: '황금 지렁이', premium: true, spriteSize: 32,
     colors: { 1: '#ffd700', 2: '#daa520', 3: '#fff4a0', 4: '#222222', 5: '#ffffff', 6: '#b8860b', 7: '#ff6600', 8: '#ffe566', 9: '#cc7700', 10: '#ff4444' },
   },
+  25: {
+    name: '린디', premium: true, spriteSize: 32,
+    colors: { 1: '#c8915a', 2: '#a0703e', 3: '#e8b882', 4: '#222222', 5: '#ffffff', 6: '#4a3520', 7: '#ffaaaa', 8: '#ff6666', 9: '#dda06a', 10: '#ffd700' },
+  },
 };
 
 export const PREMIUM_SPRITES = {
@@ -341,6 +345,9 @@ export const PREMIUM_SPRITES = {
   // 24: Golden Worm - golden body, crown, sparkles
   24: { idle: createGoldenWormIdle(), attack: createGoldenWormAttack() },
 
+  // 25: Lindy - cute teddy bear, jump kick attack
+  25: { idle: createLindyIdle(), attack: createLindyAttack() },
+
   // 18-23: Using same pattern with unique silhouettes
   // 18: Wizard - pointy hat, robe, glowing staff
   18: { idle: createWizardIdle(), attack: createWizardAttack() },
@@ -630,5 +637,112 @@ function createGoldenWormAttack() {
   s[13][15]=8; s[15][13]=8; s[17][11]=8; s[19][10]=8; s[21][11]=8;
   // Mouth open (attack face)
   s[9][16]=4; s[9][17]=6; s[9][18]=4;
+  return s;
+}
+
+// --- 25: Lindy - Cute Teddy Bear ---
+function createLindyIdle() {
+  const s = e();
+  // Round ears
+  s[3][11]=2; s[3][12]=1; s[3][13]=2;
+  s[3][19]=2; s[3][20]=1; s[3][21]=2;
+  s[4][11]=1; s[4][12]=7; s[4][13]=1;
+  s[4][19]=1; s[4][20]=7; s[4][21]=1;
+  // Head - big round fluffy head
+  for(let r=5; r<=12; r++) for(let c=10; c<=22; c++) s[r][c]=1;
+  // Round head edges
+  s[5][10]=0; s[5][22]=0; s[12][10]=0; s[12][22]=0;
+  s[5][11]=2; s[5][21]=2; s[12][11]=2; s[12][21]=2;
+  // Forehead highlight
+  s[5][14]=3; s[5][15]=3; s[5][16]=3; s[6][13]=3; s[6][14]=3;
+  // Eyes - big round cute eyes
+  s[7][13]=5; s[7][14]=4; s[7][18]=5; s[7][19]=4;
+  s[8][13]=5; s[8][14]=4; s[8][18]=5; s[8][19]=4;
+  // Rosy cheeks
+  s[9][12]=7; s[9][20]=7;
+  // Nose - small round
+  s[9][16]=6;
+  // Mouth - cute smile
+  s[10][15]=6; s[10][16]=2; s[10][17]=6;
+  // Muzzle area (lighter)
+  s[9][15]=3; s[9][16]=6; s[9][17]=3;
+  s[10][14]=3; s[10][15]=6; s[10][16]=3; s[10][17]=6; s[10][18]=3;
+  // Body - chubby teddy body
+  for(let r=13; r<=21; r++) for(let c=11; c<=21; c++) s[r][c]=1;
+  s[13][11]=2; s[13][21]=2; s[21][11]=2; s[21][21]=2;
+  // Belly patch (lighter)
+  for(let r=14; r<=19; r++) for(let c=14; c<=18; c++) s[r][c]=3;
+  s[14][14]=1; s[14][18]=1; s[19][14]=1; s[19][18]=1;
+  // Belly button
+  s[17][16]=9;
+  // Arms - short stubby arms out to sides
+  for(let r=14; r<=17; r++) { s[r][9]=1; s[r][10]=2; s[r][22]=2; s[r][23]=1; }
+  s[14][9]=2; s[14][23]=2; s[17][9]=2; s[17][23]=2;
+  // Paw pads on hands
+  s[16][9]=7; s[16][23]=7;
+  // Legs - short stubby legs
+  for(let c=12; c<=14; c++) { s[22][c]=1; s[23][c]=2; s[24][c]=6; }
+  for(let c=18; c<=20; c++) { s[22][c]=1; s[23][c]=2; s[24][c]=6; }
+  // Paw pads on feet
+  s[24][13]=7; s[24][19]=7;
+  // Ribbon/bow on head (cute accessory)
+  s[5][16]=8; s[5][17]=8;
+  s[4][15]=8; s[4][16]=8; s[4][17]=8; s[4][18]=8;
+  s[6][16]=8; s[6][17]=8;
+  return s;
+}
+
+function createLindyAttack() {
+  const s = e();
+  // Same ears
+  s[3][11]=2; s[3][12]=1; s[3][13]=2;
+  s[3][19]=2; s[3][20]=1; s[3][21]=2;
+  s[4][11]=1; s[4][12]=7; s[4][13]=1;
+  s[4][19]=1; s[4][20]=7; s[4][21]=1;
+  // Head - shifted up slightly for jump
+  for(let r=3; r<=10; r++) for(let c=10; c<=22; c++) s[r][c]=1;
+  s[3][10]=0; s[3][22]=0; s[10][10]=0; s[10][22]=0;
+  s[3][11]=2; s[3][21]=2; s[10][11]=2; s[10][21]=2;
+  // Ears on top (shifted up)
+  s[1][11]=2; s[1][12]=1; s[1][13]=2;
+  s[1][19]=2; s[1][20]=1; s[1][21]=2;
+  s[2][11]=1; s[2][12]=7; s[2][13]=1;
+  s[2][19]=1; s[2][20]=7; s[2][21]=1;
+  // Forehead highlight
+  s[3][14]=3; s[3][15]=3; s[3][16]=3; s[4][13]=3; s[4][14]=3;
+  // Eyes - determined face
+  s[5][13]=5; s[5][14]=4; s[5][18]=5; s[5][19]=4;
+  s[6][13]=5; s[6][14]=4; s[6][18]=5; s[6][19]=4;
+  // Rosy cheeks
+  s[7][12]=7; s[7][20]=7;
+  // Nose
+  s[7][16]=6;
+  // Mouth - open determined
+  s[8][15]=4; s[8][16]=8; s[8][17]=4;
+  // Ribbon
+  s[3][16]=8; s[3][17]=8;
+  s[2][15]=8; s[2][16]=8; s[2][17]=8; s[2][18]=8;
+  // Body - tilted for kick
+  for(let r=11; r<=18; r++) for(let c=11; c<=21; c++) s[r][c]=1;
+  s[11][11]=2; s[11][21]=2; s[18][11]=2; s[18][21]=2;
+  // Belly patch
+  for(let r=12; r<=17; r++) for(let c=14; c<=18; c++) s[r][c]=3;
+  s[12][14]=1; s[12][18]=1; s[17][14]=1; s[17][18]=1;
+  s[15][16]=9;
+  // Left arm raised (punching up)
+  s[10][9]=1; s[10][10]=2; s[11][9]=1; s[11][10]=2;
+  s[9][8]=1; s[9][9]=7;
+  // Right arm back
+  s[13][22]=2; s[13][23]=1; s[14][22]=2; s[14][23]=1;
+  // Left leg standing
+  for(let c=12; c<=14; c++) { s[19][c]=1; s[20][c]=2; s[21][c]=6; }
+  s[21][13]=7;
+  // Right leg - extended kick!
+  s[17][22]=1; s[17][23]=1; s[17][24]=1;
+  s[18][23]=1; s[18][24]=2; s[18][25]=2; s[18][26]=8;
+  s[19][24]=1; s[19][25]=2;
+  // Kick effect sparkles
+  s[16][26]=10; s[17][27]=10; s[19][26]=10;
+  s[15][25]=10; s[18][28]=10;
   return s;
 }
