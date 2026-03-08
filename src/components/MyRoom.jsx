@@ -437,6 +437,43 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, [equippedId, plantFlower]);
 
+  // ── 앞마당 ref 동기화 ──
+  useEffect(() => { yardModeRef.current = yardMode; }, [yardMode]);
+  useEffect(() => { yardFlowersRef.current = yardFlowers; }, [yardFlowers]);
+  useEffect(() => { yardCharPosRef.current = yardCharPos; }, [yardCharPos]);
+  useEffect(() => { yardOwnerRef.current = yardOwner; }, [yardOwner]);
+
+  // ── 앞마당 캐릭터 이동 루프 ──
+  useEffect(() => {
+    if (!yardMode) return;
+    let frameId;
+    const yardTick = () => {
+      const keys = keysRef.current;
+      const joy = joystickRef.current;
+      let dx = 0, dy = 0;
+      if (keys.ArrowLeft) dx -= 1;
+      if (keys.ArrowRight) dx += 1;
+      if (keys.ArrowUp) dy -= 1;
+      if (keys.ArrowDown) dy += 1;
+      if (joy.active) { dx += joy.dx; dy += joy.dy; }
+      if (dx !== 0 || dy !== 0) {
+        const speed = 1.8;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        dx = (dx / len) * speed;
+        dy = (dy / len) * speed;
+        if (dx < 0) yardCharFlip.current = true;
+        if (dx > 0) yardCharFlip.current = false;
+        setYardCharPos(prev => ({
+          x: Math.max(10, Math.min(290, prev.x + dx)),
+          y: Math.max(60, Math.min(190, prev.y + dy)),
+        }));
+      }
+      frameId = requestAnimationFrame(yardTick);
+    };
+    frameId = requestAnimationFrame(yardTick);
+    return () => cancelAnimationFrame(frameId);
+  }, [yardMode]);
+
   // ── 호스트 채널: 내 방을 개방하여 게스트 수신 ──
   useEffect(() => {
     if (!isOnline()) return;
@@ -1198,13 +1235,32 @@ export default function MyRoom({ player, nickname, onBack }) {
             </span>
           )}
         </span>
-        <button
-          className={`pixel-btn ${editMode ? 'gold' : ''}`}
-          onClick={() => { playClick(); setEditMode(!editMode); }}
-          style={{ fontSize: 10, minWidth: 50, padding: '6px 8px' }}
-        >
-          {editMode ? '완료' : '꾸미기'}
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {visitMode === 'visiting' && (
+            <button
+              className="pixel-btn"
+              onClick={() => {
+                playClick();
+                setYardOwner(visitTarget);
+                setYardCharPos({ x: 150, y: 160 });
+                if (isOnline()) {
+                  getYardFlowers(visitTarget).then(f => setYardFlowers(f || []));
+                }
+                setYardMode('visiting');
+              }}
+              style={{ fontSize: 8, minWidth: 40, padding: '4px 6px', background: '#2a6e2a', border: '2px solid #44aa44', color: '#aaffaa' }}
+            >
+              앞마당
+            </button>
+          )}
+          <button
+            className={`pixel-btn ${editMode ? 'gold' : ''}`}
+            onClick={() => { playClick(); setEditMode(!editMode); }}
+            style={{ fontSize: 10, minWidth: 50, padding: '6px 8px' }}
+          >
+            {editMode ? '완료' : '꾸미기'}
+          </button>
+        </div>
       </div>
 
       {/* ── 앞마당 뷰 ── */}
@@ -1437,6 +1493,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                   }
                 }
               }}
+              data-yard-action="true"
               style={{
                 marginTop: 8, marginLeft: 12, width: 44, height: 44, borderRadius: '50%',
                 background: yardMode === 'own'
