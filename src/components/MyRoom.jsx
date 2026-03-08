@@ -249,6 +249,15 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (callback) callback();
   };
 
+  // ── 방 방문 시스템 (guests를 대결보다 먼저 선언) ──
+  const [visitMode, setVisitMode] = useState(null); // null | 'input' | 'visiting'
+  const [visitTarget, setVisitTarget] = useState(''); // 방문할 닉네임
+  const [visitError, setVisitError] = useState('');
+  const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
+  const visitChannelRef = useRef(null);
+  const hostChannelRef = useRef(null);
+  const visitModeRef = useRef(null);
+
   // ── 1:1 대결 ──
   const DUEL_TIME = 10; // 제한시간 10초
   const NEAR_RANGE = 40; // 캐릭터 근접 거리
@@ -317,15 +326,6 @@ export default function MyRoom({ player, nickname, onBack }) {
     setDuelResult(null);
     setDuelWrong(null);
   };
-
-  // ── 방 방문 시스템 ──
-  const [visitMode, setVisitMode] = useState(null); // null | 'input' | 'visiting'
-  const [visitTarget, setVisitTarget] = useState(''); // 방문할 닉네임
-  const [visitError, setVisitError] = useState('');
-  const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
-  const visitChannelRef = useRef(null);
-  const hostChannelRef = useRef(null);
-  const visitModeRef = useRef(null);
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
