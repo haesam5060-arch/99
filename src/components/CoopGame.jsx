@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { calculateScore, WRONG_PENALTY } from '../utils/scoring';
 import { playCorrect, playWrong, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
-import { CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
 import { leaveRoom } from '../utils/realtime';
 import PixelCharacter from './PixelCharacter';
 
@@ -49,7 +48,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const [shake, setShake] = useState(false);
   const [flashColor, setFlashColor] = useState(null);
   const [timer, setTimer] = useState(QUESTION_TIME);
-  const [skillName, setSkillName] = useState(null);
   const [danClearDan, setDanClearDan] = useState(0);
 
   // 실시간 랭킹
@@ -65,6 +63,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   );
   const [rankChanges, setRankChanges] = useState({});
   const prevRankMapRef = useRef({});
+  const finishedByOtherRef = useRef(false);
 
   const timerRef = useRef(null);
   const qStartTimeRef = useRef(null);
@@ -79,7 +78,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const currentQuestion = questions[qIndex];
   const currentDan = currentQuestion?.dan || 2;
   const qInDan = currentQuestion ? (qIndex % 9) : 0;
-  const totalQuestions = questions.length;
 
   // 초기화: 시드 받기 (Presence에서)
   useEffect(() => {
@@ -125,6 +123,21 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       if (!isHost && hostSeed && seedRef.current === 0) {
         seedRef.current = hostSeed;
         setQuestions(makeAllQuestions(hostSeed));
+      }
+
+      // 누군가 완료했으면 전체 게임 종료
+      const someoneFinished = players.some(p => p.finished);
+      if (someoneFinished && !finishedByOtherRef.current) {
+        const s = stateRef.current;
+        if (s.gamePhase === 'playing' || s.gamePhase === 'danClear') {
+          finishedByOtherRef.current = true;
+          clearInterval(timerRef.current);
+          // 내 최종 점수도 broadcast
+          broadcastMyState(s.myScore, s.qIndex, true);
+          setGamePhase('finished');
+          stopBGM();
+          playGameComplete();
+        }
       }
 
       // 랭킹 업데이트 + 순위 변동 감지
@@ -208,7 +221,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     }, 800);
   }, []);
 
-  // 정답 처리
+  // 정답 처리 (캐릭터 특수능력 무효 - 스킬 이펙트 없음, 황금 지렁이 감점 면역 없음)
   const handleAnswer = useCallback((answer) => {
     const s = stateRef.current;
     if (s.gamePhase !== 'playing') return;
@@ -228,13 +241,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       playCorrect();
       setFlashColor('rgba(0, 255, 0, 0.12)');
       setFeedback({ type: 'correct', text: `+${score}P` });
-
-      // 기술 이펙트
-      try {
-        const palette = CHARACTER_PALETTES?.[player.equippedCharacter || 0];
-        const skillColor = palette?.colors?.[1] || '#ffd700';
-        setSkillName({ text: getRandomSkill(player.equippedCharacter || 0), color: skillColor });
-      } catch {}
     } else {
       playWrong();
       setShake(true);
@@ -253,7 +259,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setFlashColor(null);
       setFeedback(null);
       setSelectedChoice(-1);
-      setSkillName(null);
       advanceQuestion();
     }, correct ? 600 : 800);
   }, []);
@@ -278,9 +283,10 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       return;
     }
 
-    // 모든 문제 완료
+    // 모든 문제 완료 (내가 9단까지 다 풀었을 때 → 전체 종료 트리거)
     if (nextIdx >= s.questions.length) {
       setGamePhase('finished');
+      stopBGM();
       playGameComplete();
       broadcastMyState(s.myScore, nextIdx, true);
       return;
@@ -365,35 +371,25 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     );
   }
 
-  // === 게임 완료 ===
+  // === 게임 완료 - 시상식 ===
   if (gamePhase === 'finished') {
-    const allFinished = rankings.every(r => r.finished);
     return (
-      <div className="game-container" style={{ justifyContent: 'center' }}>
+      <div className="game-container" style={{ justifyContent: 'center', paddingTop: 16 }}>
         <div style={{
-          fontSize: 24, color: '#ffd700', marginBottom: 6, fontFamily: "'Press Start 2P', monospace",
+          fontSize: 22, color: '#ffd700', marginBottom: 4, fontFamily: "'Press Start 2P', monospace",
           textShadow: '2px 2px 0 #b8860b',
         }}>
           게임 완료!
         </div>
-        <div style={{ fontSize: 14, color: '#fff', marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: '#fff', marginBottom: 16 }}>
           내 점수: <span style={{ color: '#ffd700' }}>{myScore.toLocaleString()}P</span>
-        </div>
-        <div style={{
-          fontSize: 18, color: myRank === 1 ? '#ffd700' : myRank === 2 ? '#c0c0c0' : '#cd7f32',
-          marginBottom: 16, fontFamily: "'Press Start 2P', monospace",
-        }}>
-          {myRank === 1 ? '👑 1위!' : `${myRank}위`}
+          {' '}<span style={{ fontSize: 10, color: myRank === 1 ? '#ffd700' : '#aaa' }}>({myRank}위)</span>
         </div>
 
-        <RankingBoard rankings={rankings} nickname={nickname} rankChanges={{}} showScore />
+        {/* 시상대 */}
+        <Podium rankings={rankings} nickname={nickname} />
 
-        {!allFinished && (
-          <div style={{ fontSize: 9, color: '#aaa', marginTop: 12, animation: 'blink 1s infinite' }}>
-            다른 플레이어 완료 대기중...
-          </div>
-        )}
-        <button className="pixel-btn gold" onClick={handleQuit} style={{ marginTop: 20 }}>나가기</button>
+        <button className="pixel-btn gold" onClick={handleQuit} style={{ marginTop: 16 }}>나가기</button>
       </div>
     );
   }
@@ -497,17 +493,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
               {feedback.text}
             </div>
           )}
-
-          {/* 기술 이름 */}
-          {skillName && (
-            <div className="skill-name-popup" style={{
-              position: 'relative', top: 0, left: 0, transform: 'none', marginTop: 4,
-              color: skillName.color,
-              textShadow: `2px 2px 0 #000, -1px -1px 0 #000, 0 0 10px ${skillName.color}`,
-            }}>
-              {skillName.text}
-            </div>
-          )}
         </div>
 
         {/* 오른쪽: 실시간 랭킹 */}
@@ -574,8 +559,128 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   );
 }
 
-// 랭킹 보드 (카운트다운, 단클리어, 결과 화면용)
-function RankingBoard({ rankings, nickname, rankChanges, compact, showScore }) {
+// 시상대 컴포넌트 (1위, 2위, 3위 + 나머지 리스트)
+function Podium({ rankings, nickname }) {
+  const top3 = rankings.slice(0, 3);
+  const rest = rankings.slice(3);
+
+  // 시상대 순서: 2위(왼쪽) - 1위(가운데) - 3위(오른쪽)
+  const podiumOrder = [];
+  if (top3[1]) podiumOrder.push({ ...top3[1], rank: 2 });
+  if (top3[0]) podiumOrder.push({ ...top3[0], rank: 1 });
+  if (top3[2]) podiumOrder.push({ ...top3[2], rank: 3 });
+
+  const podiumHeights = { 1: 80, 2: 56, 3: 40 };
+  const podiumColors = { 1: '#ffd700', 2: '#c0c0c0', 3: '#cd7f32' };
+  const medalEmojis = { 1: '👑', 2: '🥈', 3: '🥉' };
+
+  return (
+    <div style={{ width: '100%', maxWidth: 340 }}>
+      {/* 시상대 */}
+      <div style={{
+        display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+        gap: 6, marginBottom: 16, minHeight: 160,
+      }}>
+        {podiumOrder.map((p) => {
+          const isMe = p.nickname === nickname;
+          const height = podiumHeights[p.rank];
+          return (
+            <div key={p.nickname} style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              width: p.rank === 1 ? 110 : 90,
+              animation: 'slideUp 0.8s ease-out',
+            }}>
+              {/* 메달 */}
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{medalEmojis[p.rank]}</div>
+              {/* 캐릭터 */}
+              <div style={{
+                marginBottom: 6,
+                filter: isMe ? 'drop-shadow(0 0 8px rgba(255,215,0,0.6))' : 'none',
+              }}>
+                <PixelCharacter characterId={p.characterId} pixelSize={p.rank === 1 ? 4 : 3} />
+              </div>
+              {/* 닉네임 */}
+              <div style={{
+                fontSize: 8, color: isMe ? '#ffd700' : '#fff',
+                fontFamily: "'Press Start 2P', monospace",
+                marginBottom: 2, textAlign: 'center',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: '100%',
+              }}>
+                {p.nickname}{isMe ? '(나)' : ''}
+              </div>
+              {/* 점수 */}
+              <div style={{
+                fontSize: 9, color: podiumColors[p.rank],
+                fontFamily: "'Press Start 2P', monospace",
+                marginBottom: 4,
+              }}>
+                {p.score.toLocaleString()}P
+              </div>
+              {/* 시상대 블록 */}
+              <div style={{
+                width: '100%', height,
+                background: `linear-gradient(180deg, ${podiumColors[p.rank]}33 0%, ${podiumColors[p.rank]}11 100%)`,
+                border: `2px solid ${podiumColors[p.rank]}`,
+                borderRadius: '6px 6px 0 0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <span style={{
+                  fontSize: 24, fontFamily: "'Press Start 2P', monospace",
+                  color: podiumColors[p.rank], textShadow: '2px 2px 0 #000',
+                }}>
+                  {p.rank}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 4위 이하 리스트 */}
+      {rest.length > 0 && (
+        <div style={{
+          background: '#0d0d3d', border: '2px solid #333366', borderRadius: 8,
+          padding: 10, marginBottom: 8,
+        }}>
+          {rest.map((r, i) => {
+            const isMe = r.nickname === nickname;
+            const rank = i + 4;
+            return (
+              <div key={r.nickname} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '6px 8px', marginBottom: 2, borderRadius: 4,
+                background: isMe ? 'rgba(255,215,0,0.1)' : 'transparent',
+                border: isMe ? '1px solid rgba(255,215,0,0.2)' : '1px solid transparent',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    fontSize: 11, width: 24, textAlign: 'center', color: '#666',
+                    fontFamily: "'Press Start 2P', monospace",
+                  }}>{rank}</span>
+                  <PixelCharacter characterId={r.characterId} pixelSize={2} />
+                  <span style={{
+                    fontSize: 9, color: isMe ? '#ffd700' : '#ccc',
+                    fontFamily: "'Press Start 2P', monospace",
+                  }}>{r.nickname}</span>
+                </div>
+                <span style={{
+                  fontSize: 9, color: '#aaa',
+                  fontFamily: "'Press Start 2P', monospace",
+                }}>
+                  {r.score.toLocaleString()}P
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 랭킹 보드 (카운트다운, 단클리어 화면용)
+function RankingBoard({ rankings, nickname, rankChanges, compact }) {
   return (
     <div style={{
       background: '#0d0d3d', border: '3px solid #333366', borderRadius: 8,
@@ -610,11 +715,6 @@ function RankingBoard({ rankings, nickname, rankChanges, compact, showScore }) {
               }}>{r.nickname}</span>
             </div>
             <div style={{ textAlign: 'right' }}>
-              {showScore && (
-                <div style={{ fontSize: 11, color: '#ffd700', fontFamily: "'Press Start 2P', monospace" }}>
-                  {r.score.toLocaleString()}P
-                </div>
-              )}
               <div style={{ fontSize: 7, color: r.finished ? '#00cc66' : '#aaa' }}>
                 {r.finished ? '완료!' : `${r.currentDan}단`}
               </div>
