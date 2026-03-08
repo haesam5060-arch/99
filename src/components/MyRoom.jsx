@@ -7,7 +7,7 @@ import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
 
 const SCALE = 2;
 
-const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000], eat: [3000, 5000], eat_at: [4000, 6000], play: [3000, 5000], watch: [4000, 6000], music: [3000, 5000], ball: [2000, 4000], goout: [5000, 5000] };
+const ACTION_DURATION = { idle: [4000, 8000], walk: [6000, 12000], sleep: [8000, 14000], sit: [6000, 10000], eat: [6000, 10000], eat_at: [8000, 12000], play: [6000, 10000], watch: [8000, 12000], music: [6000, 10000], ball: [4000, 8000], goout: [10000, 10000] };
 
 // 일반 대사 (닉네임 무관)
 const SPEECH_BUBBLES_GENERIC = [
@@ -255,7 +255,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       actionTimer: Date.now() + randRange(1000, 3000),
       interacting: null,
       speech: null,
-      speechTimer: Date.now() + randRange(3000, 8000),
+      speechTimer: Date.now() + randRange(6000, 16000),
     }));
     setCharStates(states);
   }, [ownedCharacters.length, roomSize.w]);
@@ -442,14 +442,14 @@ export default function MyRoom({ player, nickname, onBack }) {
         const now = Date.now();
         // 말풍선 타이머
         if (ch.speech && now > ch.speechTimer) {
-          return { ...ch, speech: null, speechTimer: now + randRange(5000, 12000) };
+          return { ...ch, speech: null, speechTimer: now + randRange(10000, 24000) };
         }
         if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep') {
           // 20% 확률로 기술명, 80% 확률로 종합 대사 (주인 이름, 구구단 퀴즈 포함)
           const msg = Math.random() < 0.2
             ? getRandomSkill(ch.id)
             : getRandomSpeech(nickname);
-          return { ...ch, speech: msg, speechTimer: now + 3000 };
+          return { ...ch, speech: msg, speechTimer: now + 6000 };
         }
         return ch;
       }));
