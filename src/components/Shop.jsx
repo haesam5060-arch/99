@@ -943,15 +943,8 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                 }}
               >
-                <div className="char-tooltip-wrapper" style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
+                <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
                   <FurnitureCanvas furnitureId={fId} scale={2} />
-                  {FURNITURE_TOOLTIPS[fId] && (
-                    <div className="char-tooltip">
-                      {FURNITURE_TOOLTIPS[fId].split('\n').map((line, i) => (
-                        <span key={i}>{line}{i < FURNITURE_TOOLTIPS[fId].split('\n').length - 1 && <br />}</span>
-                      ))}
-                    </div>
-                  )}
                 </div>
                 <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
                   {f.name} {ownedCount > 0 ? `x${ownedCount}` : ''}
@@ -963,6 +956,15 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
                 }}>
                   {FURNITURE_MAX_COUNT[fId] && ownedCount >= FURNITURE_MAX_COUNT[fId] ? `MAX (${ownedCount}/${FURNITURE_MAX_COUNT[fId]})` : `${FURNITURE_PRICE.toLocaleString()} P`}
                 </div>
+                {f.interaction && FURNITURE_TOOLTIPS[fId] && (
+                  <div style={{
+                    fontSize: 7, color: '#aaaadd', lineHeight: 1.6,
+                    fontFamily: "'Press Start 2P', monospace",
+                    marginTop: 2, textAlign: 'center', whiteSpace: 'pre-line',
+                  }}>
+                    {FURNITURE_TOOLTIPS[fId]}
+                  </div>
+                )}
               </button>
             );
           })}
