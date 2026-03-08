@@ -399,9 +399,11 @@ export default function MyRoom({ player, nickname, onBack }) {
     // 방문 중이거나 입력 모달 중에는 내 방 데이터를 덮어쓰지 않음
     if (visitModeRef.current) return;
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
+    // ownedFurniture를 실제 layout 기준으로 동기화
+    const layoutFurniture = layout.map(item => item.id);
+    localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(layoutFurniture));
     if (isOnline()) {
-      const furniture = JSON.parse(localStorage.getItem(`room_furniture_${nickname}`) || '[]');
-      saveRoomData(nickname, layout, furniture);
+      saveRoomData(nickname, layout, layoutFurniture);
     }
   }, [layout, nickname]);
 
@@ -1369,7 +1371,22 @@ export default function MyRoom({ player, nickname, onBack }) {
 
   const handleRemoveFurniture = (idx) => {
     playClick();
-    setLayout(prev => prev.filter((_, i) => i !== idx));
+    setLayout(prev => {
+      const removed = prev[idx];
+      if (removed) {
+        // ownedFurniture에서도 해당 가구 1개 제거 (보유 목록 동기화)
+        try {
+          const furnitureStr = localStorage.getItem(`room_furniture_${nickname}`) || '[]';
+          const furniture = JSON.parse(furnitureStr);
+          const removeIdx = furniture.indexOf(removed.id);
+          if (removeIdx !== -1) {
+            furniture.splice(removeIdx, 1);
+            localStorage.setItem(`room_furniture_${nickname}`, JSON.stringify(furniture));
+          }
+        } catch {}
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
   };
 
   // ── 드래그 (가상 300x200 좌표로 저장) ──
