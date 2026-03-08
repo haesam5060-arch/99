@@ -7,7 +7,7 @@ import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
 
 const SCALE = 2;
 
-const ACTION_DURATION = { idle: [2000, 4000], walk: [1500, 3000], sleep: [4000, 7000], sit: [3000, 5000] };
+const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000] };
 
 const SPEECH_BUBBLES = [
   '구구단 연습하자~', '오늘도 화이팅!', '심심해~', '놀아줘!',
@@ -81,7 +81,6 @@ function RoomCharacter({ characterId, x, y, flip, sleeping, scale = 2 }) {
         height: canvasSize,
         imageRendering: 'pixelated',
         transform: `scaleX(${flip ? -1 : 1})${sleeping ? ' rotate(90deg) translateY(8px)' : ''}`,
-        transition: 'left 0.5s linear, top 0.3s linear',
         zIndex: Math.floor(y),
       }}
     />
@@ -173,17 +172,19 @@ export default function MyRoom({ player, nickname, onBack }) {
     setCharStates(states);
   }, [ownedCharacters.length, roomSize.w]);
 
-  // 가구 상호작용 위치 (실제 px)
+  // 가구 상호작용 위치 (실제 px) - 같은 타입 가구 중 랜덤 선택
   const findInteraction = useCallback((type) => {
+    const matches = [];
     for (const item of layout) {
       const f = FURNITURE_DEFS[item.id];
       if (f?.interaction === type) {
         const px = (item.x / 300) * roomSize.w + (f.w * SCALE) / 2;
-        const py = (item.y / 200) * roomSize.h + f.h * SCALE;
-        return { x: px, y: py };
+        const py = (item.y / 200) * roomSize.h;
+        matches.push({ x: px, y: py });
       }
     }
-    return null;
+    if (matches.length === 0) return null;
+    return matches[Math.floor(Math.random() * matches.length)];
   }, [layout, roomSize]);
 
   // 캐릭터 AI 루프
@@ -202,7 +203,7 @@ export default function MyRoom({ player, nickname, onBack }) {
               return { ...ch, x: ch.targetX, y: ch.targetY || ch.y, action: nextAction, targetX: null, targetY: null };
             }
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const speed = 1.2;
+            const speed = 1.8;
             return {
               ...ch,
               x: ch.x + (dx / dist) * speed,
@@ -454,7 +455,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                   left: ch.x,
                   top: ch.y - 60,
                   transform: 'translateX(-50%)',
-                  transition: 'left 0.5s linear, top 0.3s linear',
+
                   background: isSkill
                     ? 'linear-gradient(135deg, #ffe066, #ffcc00)'
                     : 'linear-gradient(135deg, #ffffff, #e8e8ff)',
