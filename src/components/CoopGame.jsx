@@ -672,7 +672,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
                 <div key={name} style={{ textAlign: 'center' }}>
                   <div style={{
                     transition: 'transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.3)',
-                    transform: isAttacking ? 'scale(2) translateY(-12px)' : 'scale(1)',
+                    transform: isAttacking ? 'scale(1) translateY(-6px)' : 'scale(1)',
                     transformOrigin: 'center bottom',
                     zIndex: isAttacking ? 100 : 1,
                     position: 'relative',
