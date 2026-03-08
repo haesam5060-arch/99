@@ -232,22 +232,30 @@ export default function MyRoom({ player, nickname, onBack }) {
   };
 
   // ── 드래그 (가상 300x200 좌표로 저장) ──
+  const draggingRef = useRef(null);
+
   const handlePointerDown = (e, idx) => {
     if (!editMode) return;
     e.preventDefault();
+    e.stopPropagation();
+    e.target.setPointerCapture(e.pointerId);
     const rect = roomRef.current.getBoundingClientRect();
     const vx = ((e.clientX - rect.left) / rect.width) * 300;
     const vy = ((e.clientY - rect.top) / rect.height) * 200;
-    setDragging({ idx, offsetX: vx - layout[idx].x, offsetY: vy - layout[idx].y });
+    const dragInfo = { idx, offsetX: vx - layout[idx].x, offsetY: vy - layout[idx].y, pointerId: e.pointerId };
+    draggingRef.current = dragInfo;
+    setDragging(dragInfo);
   };
 
   const handlePointerMove = (e) => {
-    if (!dragging || !roomRef.current) return;
+    const drag = draggingRef.current;
+    if (!drag || !roomRef.current) return;
+    e.preventDefault();
     const rect = roomRef.current.getBoundingClientRect();
-    const vx = ((e.clientX - rect.left) / rect.width) * 300 - dragging.offsetX;
-    const vy = ((e.clientY - rect.top) / rect.height) * 200 - dragging.offsetY;
+    const vx = ((e.clientX - rect.left) / rect.width) * 300 - drag.offsetX;
+    const vy = ((e.clientY - rect.top) / rect.height) * 200 - drag.offsetY;
     setLayout(prev => prev.map((item, i) => {
-      if (i !== dragging.idx) return item;
+      if (i !== drag.idx) return item;
       const f = FURNITURE_DEFS[item.id];
       return {
         ...item,
@@ -257,7 +265,10 @@ export default function MyRoom({ player, nickname, onBack }) {
     }));
   };
 
-  const handlePointerUp = () => setDragging(null);
+  const handlePointerUp = () => {
+    draggingRef.current = null;
+    setDragging(null);
+  };
 
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
@@ -339,6 +350,8 @@ export default function MyRoom({ player, nickname, onBack }) {
             <div
               key={`f-${idx}`}
               onPointerDown={(e) => handlePointerDown(e, idx)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
               style={{
                 position: 'absolute',
                 left: `${(item.x / 300) * 100}%`,
@@ -347,6 +360,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 zIndex: f.wallMount ? 1 : Math.floor(item.y) + 10,
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
                 transition: dragging?.idx === idx ? 'none' : 'left 0.1s, top 0.1s',
+                touchAction: 'none',
               }}
             >
               <FurnitureCanvas furnitureId={item.id} scale={SCALE} />
