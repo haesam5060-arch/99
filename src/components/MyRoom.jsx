@@ -8,6 +8,18 @@ import { updatePlayerScore } from '../utils/storage';
 
 const SCALE = 2;
 
+// calc() 포지셔닝에 맞는 가구 픽셀 좌표 변환
+// CSS: left = calc(X% - X% * pixelW) → 실제 px = (vx/300)*(roomW - pixelW)
+function furniturePx(vx, vy, f, rw, rh) {
+  const pw = f.w * SCALE, ph = f.h * SCALE;
+  return {
+    left: (vx / 300) * (rw - pw),
+    top: (vy / 200) * (rh - ph),
+    cx: (vx / 300) * (rw - pw) + pw / 2,
+    cy: (vy / 200) * (rh - ph) + ph / 2,
+  };
+}
+
 const ACTION_DURATION = { idle: [4000, 8000], walk: [6000, 12000], sleep: [8000, 14000], sit: [6000, 10000], eat: [6000, 10000], eat_at: [8000, 12000], play: [6000, 10000], watch: [8000, 12000], music: [6000, 10000], ball: [4000, 8000], goout: [10000, 10000] };
 
 // 일반 대사 (닉네임 무관)
@@ -837,10 +849,8 @@ export default function MyRoom({ player, nickname, onBack }) {
           vx = ballPhysicsRef.current[i].x;
           vy = ballPhysicsRef.current[i].y;
         }
-        const px = (vx / 300) * roomSize.w + (f.w * SCALE) / 2;
-        // 문은 하단 중앙(문 앞)으로, 나머지는 가구 중앙 높이로
-        const py = (vy / 200) * roomSize.h + (f.h * SCALE) / 2;
-        matches.push({ x: px, y: py });
+        const fp = furniturePx(vx, vy, f, roomSize.w, roomSize.h);
+        matches.push({ x: fp.cx, y: fp.cy });
       }
     }
     if (matches.length === 0) return null;
@@ -1148,17 +1158,12 @@ export default function MyRoom({ player, nickname, onBack }) {
         const bp = ballPhysicsRef.current[idx];
         const f = FURNITURE_DEFS[layout[idx].id];
 
-        // 캐릭터 충돌 감지 (px → 가상좌표 변환)
+        // 캐릭터 충돌 감지 (픽셀 기준)
+        const ballFp = furniturePx(bp.x, bp.y, f, roomSize.w, roomSize.h);
         charStatesRef.current.forEach(ch => {
           if (ch.hidden || ch.action === 'sleep') return;
-          const chVx = (ch.x / roomSize.w) * 300;
-          const chVy = (ch.y / roomSize.h) * 200;
-          const bVirtW = (f.w * SCALE / roomSize.w) * 300;
-          const bVirtH = (f.h * SCALE / roomSize.h) * 200;
-          const bCenterX = bp.x + bVirtW / 2;
-          const bCenterY = bp.y + bVirtH / 2;
-          const dx = bCenterX - chVx;
-          const dy = bCenterY - chVy;
+          const dx = ballFp.cx - ch.x;
+          const dy = ballFp.cy - ch.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < BALL_RADIUS && dist > 0) {
@@ -1180,39 +1185,31 @@ export default function MyRoom({ player, nickname, onBack }) {
           bp.vy *= BALL_FRICTION;
 
           // 벽 반사
-          const rw = roomSizeRef.current.w || 1, rh = roomSizeRef.current.h || 1;
-          const maxX = 300 - (f.w * SCALE / rw) * 300;
-          const maxY = 200 - (f.h * SCALE / rh) * 200;
           const minY = 60; // 바닥 영역만
           if (bp.x < 0) { bp.x = 0; bp.vx = Math.abs(bp.vx) * 0.7; }
-          if (bp.x > maxX) { bp.x = maxX; bp.vx = -Math.abs(bp.vx) * 0.7; }
+          if (bp.x > 300) { bp.x = 300; bp.vx = -Math.abs(bp.vx) * 0.7; }
           if (bp.y < minY) { bp.y = minY; bp.vy = Math.abs(bp.vy) * 0.7; }
-          if (bp.y > maxY) { bp.y = maxY; bp.vy = -Math.abs(bp.vy) * 0.7; }
+          if (bp.y > 200) { bp.y = 200; bp.vy = -Math.abs(bp.vy) * 0.7; }
 
           // 멈춤 처리
           if (Math.abs(bp.vx) < BALL_MIN_SPEED) bp.vx = 0;
           if (Math.abs(bp.vy) < BALL_MIN_SPEED) bp.vy = 0;
 
-          // 골 감지: 공이 골대 영역 안에 들어왔는지
+          // 골 감지: 공이 골대 영역 안에 들어왔는지 (픽셀 기준)
           if (!goalCooldownRef.current) {
-            const bVW2 = (f.w * SCALE / rw) * 300;
-            const bVH2 = (f.h * SCALE / rh) * 200;
-            const ballCX = bp.x + bVW2 / 2;
-            const ballCY = bp.y + bVH2 / 2;
+            const rsw = roomSizeRef.current.w || 1, rsh = roomSizeRef.current.h || 1;
+            const bFp = furniturePx(bp.x, bp.y, f, rsw, rsh);
             layout.forEach((fi) => {
               if (fi.id !== 'soccerGoal') return;
               const gf = FURNITURE_DEFS.soccerGoal;
-              const gVW = (gf.w * SCALE / rw) * 300;
-              const gVH = (gf.h * SCALE / rh) * 200;
-              const gLeft = fi.x;
-              const gRight = fi.x + gVW;
-              const gTop = fi.y;
-              const gBottom = fi.y + gVH;
-              if (ballCX > gLeft + 4 && ballCX < gRight - 4 && ballCY > gTop && ballCY < gBottom) {
+              const gFp = furniturePx(fi.x, fi.y, gf, rsw, rsh);
+              const gRight = gFp.left + gf.w * SCALE;
+              const gBottom = gFp.top + gf.h * SCALE;
+              if (bFp.cx > gFp.left + 4 && bFp.cx < gRight - 4 && bFp.cy > gFp.top && bFp.cy < gBottom) {
                 goalCooldownRef.current = true;
                 // 골 위치 (% 기준)
-                const goalScreenX = ((fi.x + gVW / 2) / 300) * 100;
-                const goalScreenY = ((fi.y + gVH / 2) / 200) * 100;
+                const goalScreenX = (gFp.cx / rsw) * 100;
+                const goalScreenY = (gFp.cy / rsh) * 100;
                 // 파티클 생성
                 const particles = Array.from({ length: 30 }, (_, i) => ({
                   id: i,
@@ -1328,10 +1325,9 @@ export default function MyRoom({ player, nickname, onBack }) {
     for (let i = 0; i < layout.length; i++) {
       if (layout[i].id !== 'toyTruck') continue;
       const f = FURNITURE_DEFS[layout[i].id];
-      const truckPx = (layout[i].x / 300) * roomSize.w + (f.w * SCALE) / 2;
-      const truckPy = (layout[i].y / 200) * roomSize.h + (f.h * SCALE) / 2;
-      const dx = equippedChar.x - truckPx;
-      const dy = equippedChar.y - truckPy;
+      const fp = furniturePx(layout[i].x, layout[i].y, f, roomSize.w, roomSize.h);
+      const dx = equippedChar.x - fp.cx;
+      const dy = equippedChar.y - fp.cy;
       if (Math.sqrt(dx * dx + dy * dy) < 50) return i;
     }
     return null;
@@ -1343,10 +1339,9 @@ export default function MyRoom({ player, nickname, onBack }) {
     for (let i = 0; i < layout.length; i++) {
       if (layout[i].id !== 'door') continue;
       const f = FURNITURE_DEFS[layout[i].id];
-      const doorPx = (layout[i].x / 300) * roomSize.w + (f.w * SCALE) / 2;
-      const doorPy = (layout[i].y / 200) * roomSize.h + (f.h * SCALE) / 2;
-      const dx = equippedChar.x - doorPx;
-      const dy = equippedChar.y - doorPy;
+      const fp = furniturePx(layout[i].x, layout[i].y, f, roomSize.w, roomSize.h);
+      const dx = equippedChar.x - fp.cx;
+      const dy = equippedChar.y - fp.cy;
       if (Math.sqrt(dx * dx + dy * dy) < 50) return true;
     }
     return false;
@@ -2060,7 +2055,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                         setLayout(prev => [...prev, {
                           id: fId,
                           x: f.wallMount ? 100 : 50 + Math.random() * 150,
-                          y: f.wallMount ? 15 : 200 - (f.h * SCALE / roomSize.h) * 200 - 10,
+                          y: f.wallMount ? 15 : 180,
                         }]);
                       }}
                       style={{
