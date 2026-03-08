@@ -523,9 +523,15 @@ export default function MyRoom({ player, nickname, onBack }) {
             return newGuests.filter(g => activeNames.has(g.nickname));
           });
         } else if (payload.nickname && payload.x != null) {
-          setGuests(prev => prev.map(g =>
-            g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip } : g
-          ));
+          setGuests(prev => {
+            const exists = prev.find(g => g.nickname === payload.nickname);
+            if (exists) {
+              return prev.map(g =>
+                g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip, characterId: payload.characterId || g.characterId } : g
+              );
+            }
+            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: payload.x, y: payload.y, flip: payload.flip }];
+          });
         }
       },
     });
@@ -637,7 +643,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 : g
               );
             }
-            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: payload.x, y: payload.y, flip: payload.flip }];
+            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: payload.x, y: payload.y, flip: payload.flip, _isHost: true }];
           });
         }
       },
@@ -658,9 +664,15 @@ export default function MyRoom({ player, nickname, onBack }) {
             return newGuests;
           });
         } else if (payload.nickname && payload.nickname !== nickname && payload.x != null) {
-          setGuests(prev => prev.map(g =>
-            g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip } : g
-          ));
+          setGuests(prev => {
+            const exists = prev.find(g => g.nickname === payload.nickname);
+            if (exists) {
+              return prev.map(g =>
+                g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip } : g
+              );
+            }
+            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: payload.x, y: payload.y, flip: payload.flip }];
+          });
         }
       },
     });
