@@ -336,7 +336,20 @@ export default function MyRoom({ player, nickname, onBack }) {
   // 놀러가기 핸들러
   const handleVisit = async () => {
     if (!visitTarget.trim()) return;
-    if (visitTarget.trim() === nickname) { setVisitError('자기 방에는 이미 있어요!'); return; }
+    // 자기 닉네임 입력 시 내 방으로 복귀
+    if (visitTarget.trim() === nickname) {
+      playClick();
+      leaveVisitRoom(visitChannelRef.current);
+      visitChannelRef.current = null;
+      setVisitMode(null);
+      setVisitTarget('');
+      setGuests([]);
+      try {
+        const saved = localStorage.getItem(`room_layout_${nickname}`);
+        if (saved) setLayout(JSON.parse(saved));
+      } catch {}
+      return;
+    }
     setVisitError('');
     const data = await getRoomData(visitTarget.trim());
     if (!data) { setVisitError('존재하지 않는 닉네임이에요'); return; }
@@ -838,7 +851,7 @@ export default function MyRoom({ player, nickname, onBack }) {
 
   // 장착 캐릭터와 문 근처 감지 (놀러가기)
   const nearDoor = (() => {
-    if (!equippedChar || visitMode === 'visiting') return false;
+    if (!equippedChar) return false;
     for (let i = 0; i < layout.length; i++) {
       if (layout[i].id !== 'door') continue;
       const f = FURNITURE_DEFS[layout[i].id];
@@ -1103,7 +1116,18 @@ export default function MyRoom({ player, nickname, onBack }) {
                 )}
                 {/* 문 근처: 친구집 놀러가기 */}
                 {nearDoor && isOnline() && ridingTruckIdx == null && (
-                  <button onClick={() => { playClick(); setVisitMode('input'); setVisitError(''); }} style={{
+                  <button onClick={() => {
+                    playClick();
+                    // 이미 방문 중이면 현재 방문 채널 정리
+                    if (visitMode === 'visiting' && visitChannelRef.current) {
+                      leaveVisitRoom(visitChannelRef.current);
+                      visitChannelRef.current = null;
+                      setGuests([]);
+                    }
+                    setVisitMode('input');
+                    setVisitTarget('');
+                    setVisitError('');
+                  }} style={{
                     position: 'absolute', left: ch.x, top: ch.y - 58,
                     transform: 'translateX(-50%)',
                     zIndex: 9999,
@@ -1391,7 +1415,16 @@ export default function MyRoom({ player, nickname, onBack }) {
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 10000,
-        }} onClick={() => setVisitMode(null)}>
+        }} onClick={() => {
+          // 취소 시: 이미 방문 채널을 끊었으므로 내 방으로 복귀
+          setVisitMode(null);
+          setVisitTarget('');
+          setGuests([]);
+          try {
+            const saved = localStorage.getItem(`room_layout_${nickname}`);
+            if (saved) setLayout(JSON.parse(saved));
+          } catch {}
+        }}>
           <div style={{
             background: '#1a1a5e', border: '2px solid #4a4a8a', borderRadius: 10,
             padding: 20, minWidth: 250, textAlign: 'center',
@@ -1419,7 +1452,15 @@ export default function MyRoom({ player, nickname, onBack }) {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
-              <button className="pixel-btn" onClick={() => setVisitMode(null)} style={{ fontSize: 9, padding: '5px 12px' }}>
+              <button className="pixel-btn" onClick={() => {
+                setVisitMode(null);
+                setVisitTarget('');
+                setGuests([]);
+                try {
+                  const saved = localStorage.getItem(`room_layout_${nickname}`);
+                  if (saved) setLayout(JSON.parse(saved));
+                } catch {}
+              }} style={{ fontSize: 9, padding: '5px 12px' }}>
                 취소
               </button>
               <button className="pixel-btn gold" onClick={handleVisit} style={{ fontSize: 9, padding: '5px 12px' }}>
