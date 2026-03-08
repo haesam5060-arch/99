@@ -249,6 +249,92 @@ export async function getOnlineRankings() {
     .sort((a, b) => b.totalEarned - a.totalEarned || b.score - a.score);
 }
 
+// ── 방 방문 (Realtime) ──
+
+// 방 방문 채널 생성 & 접속
+export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { onGuestUpdate, onHostUpdate }) {
+  if (!supabase) return null;
+  const channelName = `visit-room-${hostNickname}`;
+  const channel = supabase.channel(channelName);
+
+  // 게스트 위치 수신 (방 주인 측)
+  channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
+    if (onGuestUpdate) onGuestUpdate(payload);
+  });
+
+  // 호스트 캐릭터 위치 수신 (방문자 측)
+  channel.on('broadcast', { event: 'host-chars' }, ({ payload }) => {
+    if (onHostUpdate) onHostUpdate(payload);
+  });
+
+  // presence로 접속자 감지
+  channel.on('presence', { event: 'sync' }, () => {
+    const state = channel.presenceState();
+    const visitors = [];
+    Object.values(state).forEach(presences => {
+      presences.forEach(p => { if (p.role === 'visitor') visitors.push(p); });
+    });
+    if (onGuestUpdate) onGuestUpdate({ type: 'presence', visitors });
+  });
+
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      await channel.track({
+        nickname: visitorNickname,
+        characterId: visitorCharId,
+        role: 'visitor',
+      });
+    }
+  });
+
+  return channel;
+}
+
+// 호스트가 자기 방 채널 열기 (방문자 수신 대기)
+export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate }) {
+  if (!supabase) return null;
+  const channelName = `visit-room-${hostNickname}`;
+  const channel = supabase.channel(channelName);
+
+  channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
+    if (onGuestUpdate) onGuestUpdate(payload);
+  });
+
+  channel.on('presence', { event: 'sync' }, () => {
+    const state = channel.presenceState();
+    const visitors = [];
+    Object.values(state).forEach(presences => {
+      presences.forEach(p => { if (p.role === 'visitor') visitors.push(p); });
+    });
+    if (onGuestUpdate) onGuestUpdate({ type: 'presence', visitors });
+  });
+
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      await channel.track({
+        nickname: hostNickname,
+        characterId: hostCharId,
+        role: 'host',
+      });
+    }
+  });
+
+  return channel;
+}
+
+// 위치 브로드캐스트
+export function broadcastVisitPosition(channel, eventName, payload) {
+  if (!channel) return;
+  channel.send({ type: 'broadcast', event: eventName, payload });
+}
+
+// 방 나가기
+export function leaveVisitRoom(channel) {
+  if (!channel || !supabase) return;
+  channel.untrack();
+  supabase.removeChannel(channel);
+}
+
 // Get top 10 rankings (lightweight, for game screen)
 export async function getTop10Rankings() {
   if (!supabase) return [];

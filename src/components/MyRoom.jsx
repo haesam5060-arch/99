@@ -3,7 +3,7 @@ import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/c
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
-import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
+import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom } from '../utils/supabase';
 
 const SCALE = 2;
 
@@ -200,8 +200,16 @@ export default function MyRoom({ player, nickname, onBack }) {
 
   const ownedCharacters = player.characters || [0];
   const equippedId = Number(player.equippedCharacter ?? ownedCharacters[0]);
-  const [ridingTruckIdx, setRidingTruckIdx] = useState(null); // 탑승 중인 트럭 layout index
-  const tailRef = useRef([]); // 꼬리물기 캐릭터 ID 순서 배열
+  const [ridingTruckIdx, setRidingTruckIdx] = useState(null);
+  const tailRef = useRef([]);
+
+  // ── 방 방문 시스템 ──
+  const [visitMode, setVisitMode] = useState(null); // null | 'input' | 'visiting'
+  const [visitTarget, setVisitTarget] = useState(''); // 방문할 닉네임
+  const [visitError, setVisitError] = useState('');
+  const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
+  const visitChannelRef = useRef(null);
+  const hostChannelRef = useRef(null);
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
@@ -255,6 +263,95 @@ export default function MyRoom({ player, nickname, onBack }) {
     window.addEventListener('keyup', onUp);
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, []);
+
+  // ── 호스트 채널: 내 방을 개방하여 게스트 수신 ──
+  useEffect(() => {
+    if (!isOnline()) return;
+    const ch = hostVisitRoom(nickname, equippedId, {
+      onGuestUpdate: (payload) => {
+        if (payload.type === 'presence') {
+          setGuests(prev => {
+            const existing = new Set(prev.map(g => g.nickname));
+            const newGuests = [...prev];
+            payload.visitors.forEach(v => {
+              if (!existing.has(v.nickname)) {
+                newGuests.push({ nickname: v.nickname, characterId: v.characterId, x: 100, y: 200, flip: false });
+              }
+            });
+            // 떠난 게스트 제거
+            const activeNames = new Set(payload.visitors.map(v => v.nickname));
+            return newGuests.filter(g => activeNames.has(g.nickname));
+          });
+        } else if (payload.nickname && payload.x != null) {
+          setGuests(prev => prev.map(g =>
+            g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip } : g
+          ));
+        }
+      },
+    });
+    hostChannelRef.current = ch;
+    return () => { leaveVisitRoom(ch); hostChannelRef.current = null; };
+  }, [nickname, equippedId]);
+
+  // ── 방문 시 내 위치 브로드캐스트 ──
+  useEffect(() => {
+    if (visitMode !== 'visiting' || !visitChannelRef.current) return;
+    const eq = charStates.find(c => Number(c.id) === equippedId);
+    if (!eq) return;
+    broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
+      nickname, characterId: equippedId, x: eq.x, y: eq.y, flip: eq.flip,
+    });
+  }, [charStates, visitMode, equippedId, nickname]);
+
+  // 놀러가기 핸들러
+  const handleVisit = async () => {
+    if (!visitTarget.trim()) return;
+    if (visitTarget.trim() === nickname) { setVisitError('자기 방에는 이미 있어요!'); return; }
+    setVisitError('');
+    const data = await getRoomData(visitTarget.trim());
+    if (!data) { setVisitError('존재하지 않는 닉네임이에요'); return; }
+    // 상대방 방 레이아웃 로드
+    if (data.room_layout?.length > 0) setLayout(data.room_layout);
+    // 방문 채널 접속
+    const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
+      onHostUpdate: () => {},
+      onGuestUpdate: (payload) => {
+        if (payload.type === 'presence') {
+          setGuests(prev => {
+            const newGuests = [];
+            payload.visitors.forEach(v => {
+              if (v.nickname !== nickname) {
+                const existing = prev.find(g => g.nickname === v.nickname);
+                newGuests.push(existing || { nickname: v.nickname, characterId: v.characterId, x: 200, y: 200, flip: false });
+              }
+            });
+            return newGuests;
+          });
+        } else if (payload.nickname && payload.nickname !== nickname && payload.x != null) {
+          setGuests(prev => prev.map(g =>
+            g.nickname === payload.nickname ? { ...g, x: payload.x, y: payload.y, flip: payload.flip } : g
+          ));
+        }
+      },
+    });
+    visitChannelRef.current = ch;
+    setVisitMode('visiting');
+    playClick();
+  };
+
+  const handleLeaveVisit = () => {
+    playClick();
+    leaveVisitRoom(visitChannelRef.current);
+    visitChannelRef.current = null;
+    setVisitMode(null);
+    setVisitTarget('');
+    setGuests([]);
+    // 원래 내 방 레이아웃 복원
+    try {
+      const saved = localStorage.getItem(`room_layout_${nickname}`);
+      if (saved) setLayout(JSON.parse(saved));
+    } catch {}
+  };
 
   // 바닥 영역 (실제 px) - 벽 30% 아래부터 92%까지
   const floorTop = roomSize.h * 0.35;
@@ -735,13 +832,18 @@ export default function MyRoom({ player, nickname, onBack }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 10 }}>
         <button
           className="pixel-btn"
-          onClick={() => { playClick(); onBack(); }}
+          onClick={() => { playClick(); if (visitMode === 'visiting') handleLeaveVisit(); else onBack(); }}
           style={{ fontSize: 10, minWidth: 50, padding: '6px 8px' }}
         >
-          뒤로
+          {visitMode === 'visiting' ? '돌아가기' : '뒤로'}
         </button>
-        <span style={{ fontSize: 13, color: 'var(--gold)' }}>
-          {nickname}의 방
+        <span style={{ fontSize: 13, color: visitMode === 'visiting' ? '#88ccff' : 'var(--gold)' }}>
+          {visitMode === 'visiting' ? `${visitTarget}의 방` : `${nickname}의 방`}
+          {guests.length > 0 && !visitMode && (
+            <span style={{ fontSize: 8, color: '#88ff88', marginLeft: 6 }}>
+              방문자 {guests.length}명
+            </span>
+          )}
         </span>
         <button
           className={`pixel-btn ${editMode ? 'gold' : ''}`}
@@ -974,6 +1076,30 @@ export default function MyRoom({ player, nickname, onBack }) {
           </div>
         ))}
 
+        {/* 게스트 캐릭터 (방문자) */}
+        {!editMode && guests.map((g) => (
+          <div key={`guest-${g.nickname}`}>
+            <RoomCharacter
+              characterId={g.characterId}
+              x={g.x} y={g.y}
+              flip={g.flip}
+              sleeping={false}
+              scale={SCALE}
+            />
+            <div style={{
+              position: 'absolute', left: g.x, top: g.y - 40,
+              transform: 'translateX(-50%)',
+              fontSize: 6, color: '#88ccff',
+              fontFamily: "'Press Start 2P', monospace",
+              textShadow: '1px 1px 0 #000',
+              zIndex: 9998, pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+            }}>
+              {g.nickname}
+            </div>
+          </div>
+        ))}
+
         {/* 외출 중 캐릭터 말풍선 (문 위에 표시) */}
         {!editMode && charStates.filter(ch => ch.hidden && ch.speech).map((ch) => {
           const charName = CHARACTER_PALETTES[ch.id]?.name || '';
@@ -1111,15 +1237,26 @@ export default function MyRoom({ player, nickname, onBack }) {
         </div>
       )}
 
-      {/* 캐릭터 목록 */}
+      {/* 캐릭터 목록 + 놀러가기 */}
       {!editMode && (
         <div style={{
           marginTop: 10, width: '100%',
           background: '#141450', border: '2px solid #333366',
           borderRadius: 6, padding: '8px 12px',
         }}>
-          <div style={{ fontSize: 9, color: '#aaa', marginBottom: 6 }}>
-            우리 친구들 ({ownedCharacters.length}마리)
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: 9, color: '#aaa' }}>
+              {visitMode === 'visiting' ? `${visitTarget}의 친구들` : `우리 친구들 (${ownedCharacters.length}마리)`}
+            </span>
+            {visitMode !== 'visiting' && isOnline() && (
+              <button
+                className="pixel-btn"
+                onClick={() => { playClick(); setVisitMode('input'); setVisitError(''); }}
+                style={{ fontSize: 8, padding: '3px 8px', minWidth: 0 }}
+              >
+                놀러가기
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {ownedCharacters.map((id) => (
@@ -1133,6 +1270,51 @@ export default function MyRoom({ player, nickname, onBack }) {
                 {id === equippedId ? '▶ ' : ''}{CHARACTER_PALETTES[id]?.name || `#${id}`}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 놀러가기 입력 모달 */}
+      {visitMode === 'input' && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10000,
+        }} onClick={() => setVisitMode(null)}>
+          <div style={{
+            background: '#1a1a5e', border: '2px solid #4a4a8a', borderRadius: 10,
+            padding: 20, minWidth: 250, textAlign: 'center',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 11, color: 'var(--gold)', marginBottom: 12, fontFamily: "'Press Start 2P', monospace" }}>
+              친구 방 놀러가기
+            </div>
+            <input
+              type="text"
+              value={visitTarget}
+              onChange={e => setVisitTarget(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleVisit()}
+              placeholder="친구 닉네임 입력"
+              style={{
+                width: '100%', padding: '8px 10px', fontSize: 12,
+                background: '#0a0a3e', border: '1px solid #4a4a8a', borderRadius: 6,
+                color: '#fff', fontFamily: "'Press Start 2P', monospace",
+                outline: 'none', textAlign: 'center', boxSizing: 'border-box',
+              }}
+              autoFocus
+            />
+            {visitError && (
+              <div style={{ fontSize: 8, color: '#ff6666', marginTop: 6, fontFamily: "'Press Start 2P', monospace" }}>
+                {visitError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+              <button className="pixel-btn" onClick={() => setVisitMode(null)} style={{ fontSize: 9, padding: '5px 12px' }}>
+                취소
+              </button>
+              <button className="pixel-btn gold" onClick={handleVisit} style={{ fontSize: 9, padding: '5px 12px' }}>
+                놀러가기
+              </button>
+            </div>
           </div>
         </div>
       )}
