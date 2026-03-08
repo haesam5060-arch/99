@@ -1199,26 +1199,34 @@ export default function MyRoom({ player, nickname, onBack }) {
           if (!goalCooldownRef.current) {
             const rsw = roomSizeRef.current.w || 1, rsh = roomSizeRef.current.h || 1;
             const bFp = furniturePx(bp.x, bp.y, f, rsw, rsh);
+            // 골대별 임팩트 컬러 테마 (1번: 레드/골드, 2번: 블루/시안)
+            const GOAL_THEMES = [
+              { particles: ['#ff0', '#f44', '#ff8800', '#ffcc00', '#ff6600', '#ffaa00', '#fff'], flash: 'rgba(255,200,0,0.35)', label: '#ffcc00' },
+              { particles: ['#00ccff', '#4f4', '#44f', '#00ffcc', '#8844ff', '#00aaff', '#aaffee'], flash: 'rgba(0,180,255,0.35)', label: '#00ccff' },
+            ];
+            let goalIdx = 0;
             layout.forEach((fi) => {
               if (fi.id !== 'soccerGoal') return;
+              const curGoalIdx = goalIdx++;
               const gf = FURNITURE_DEFS.soccerGoal;
               const gFp = furniturePx(fi.x, fi.y, gf, rsw, rsh);
               const gRight = gFp.left + gf.w * SCALE;
               const gBottom = gFp.top + gf.h * SCALE;
               if (bFp.cx > gFp.left + 4 && bFp.cx < gRight - 4 && bFp.cy > gFp.top && bFp.cy < gBottom) {
                 goalCooldownRef.current = true;
+                const theme = GOAL_THEMES[curGoalIdx % GOAL_THEMES.length];
                 // 골 위치 (% 기준)
                 const goalScreenX = (gFp.cx / rsw) * 100;
                 const goalScreenY = (gFp.cy / rsh) * 100;
-                // 파티클 생성
+                // 파티클 생성 (골대별 컬러 테마 적용)
                 const particles = Array.from({ length: 30 }, (_, i) => ({
                   id: i,
                   angle: (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.5,
                   speed: 2 + Math.random() * 4,
-                  color: ['#ff0', '#f44', '#4f4', '#44f', '#f4f', '#ff8800', '#00ffcc'][Math.floor(Math.random() * 7)],
+                  color: theme.particles[Math.floor(Math.random() * theme.particles.length)],
                   size: 3 + Math.random() * 5,
                 }));
-                setGoalCelebration({ x: goalScreenX, y: goalScreenY, particles });
+                setGoalCelebration({ x: goalScreenX, y: goalScreenY, particles, flash: theme.flash, labelColor: theme.label });
                 // 공 리셋: 골대에서 좀 떨어진 곳으로
                 bp.x = 150; bp.y = 130; bp.vx = 0; bp.vy = 0;
                 // 보상: 유저 조작 캐릭터가 찬 골만 +5점
@@ -1931,7 +1939,7 @@ export default function MyRoom({ player, nickname, onBack }) {
             {/* 화면 플래시 */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'radial-gradient(circle at center, rgba(255,255,0,0.3), transparent 70%)',
+              background: `radial-gradient(circle at center, ${goalCelebration.flash || 'rgba(255,255,0,0.3)'}, transparent 70%)`,
               zIndex: 10000, pointerEvents: 'none',
               animation: 'goalFlash 0.5s ease-out',
             }} />
@@ -1947,7 +1955,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 fontSize: 32,
                 fontFamily: "'Press Start 2P', monospace",
                 color: '#fff',
-                textShadow: '0 0 10px #ff0, 0 0 20px #f80, 0 0 40px #f44, 2px 2px 0 #c00, -2px -2px 0 #c00',
+                textShadow: `0 0 10px ${goalCelebration.labelColor || '#ff0'}, 0 0 20px ${goalCelebration.flash || '#f80'}, 0 0 40px ${goalCelebration.labelColor || '#f44'}, 2px 2px 0 #333, -2px -2px 0 #333`,
                 animation: 'goalText 2.5s ease-out forwards',
                 letterSpacing: 4,
               }}>
@@ -1956,7 +1964,7 @@ export default function MyRoom({ player, nickname, onBack }) {
               <div style={{
                 fontSize: 8,
                 fontFamily: "'Press Start 2P', monospace",
-                color: '#ffcc00',
+                color: goalCelebration.labelColor || '#ffcc00',
                 marginTop: 6,
                 textShadow: '1px 1px 0 #000',
                 animation: 'goalText 2.5s ease-out forwards',
