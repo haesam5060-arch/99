@@ -3,7 +3,7 @@ import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/c
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick, playGoal } from '../utils/sound';
 import { FURNITURE_DEFS, FURNITURE_TOOLTIPS } from './Shop';
-import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore } from '../utils/supabase';
+import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore, joinLobby, sendVisitRequest, respondVisitRequest, leaveLobby } from '../utils/supabase';
 import { updatePlayerScore } from '../utils/storage';
 
 const SCALE = 2;
@@ -275,10 +275,15 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [visitTarget, setVisitTarget] = useState(''); // 방문할 닉네임
   const [visitError, setVisitError] = useState('');
   const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
+  const [visitRequest, setVisitRequest] = useState(null); // 수신된 방문 요청 { from, characterId }
+  const [visitWaiting, setVisitWaiting] = useState(false); // 게스트: 승낙 대기 중
   const visitChannelRef = useRef(null);
   const hostChannelRef = useRef(null);
+  const lobbyChannelRef = useRef(null);
+  const requestChannelRef = useRef(null); // 게스트가 호스트 로비에 접속한 임시 채널
   const hostChannelReadyRef = useRef(false);
   const visitChannelReadyRef = useRef(false);
+  const visitWaitingRef = useRef(false);
   const visitModeRef = useRef(null);
   const roomSizeRef = useRef({ w: 600, h: 400 });
   const lastBroadcastRef = useRef(0);
@@ -500,73 +505,109 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, [equippedId, plantFlower]);
 
-  // ── 호스트 채널: 내 방을 개방하여 게스트 수신 ──
+  // ── 로비 채널: 방문 요청 수신 대기 ──
   useEffect(() => {
     if (!isOnline()) return;
-    const ch = hostVisitRoom(nickname, equippedId, {
-      onGuestUpdate: (payload) => {
-        console.log('[HOST] onGuestUpdate:', payload.type || (payload.rx != null ? 'position' : 'unknown'));
-        // 상호작용 수신
-        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
-        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
-        if (payload.type === 'highfive') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const id = Date.now() + Math.random();
-          setHighFives(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
-          setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
-          return;
-        }
-        if (payload.type === 'tag') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const id = Date.now() + Math.random();
-          setTagEffects(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
-          setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
-          return;
-        }
-        if (payload.type === 'ball') {
-          Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
-            if (ballPhysicsRef.current[idx]) {
-              ballPhysicsRef.current[idx].x = bp.x;
-              ballPhysicsRef.current[idx].y = bp.y;
-              ballPhysicsRef.current[idx].vx = bp.vx;
-              ballPhysicsRef.current[idx].vy = bp.vy;
-            }
-          });
-          return;
-        }
-        if (payload.type === 'presence') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          setGuests(prev => {
-            const existing = new Set(prev.map(g => g.nickname));
-            const newGuests = [...prev];
-            payload.visitors.forEach(v => {
-              if (!existing.has(v.nickname)) {
-                newGuests.push({ nickname: v.nickname, characterId: v.characterId, x: rw * 0.3, y: rh * 0.5, flip: false });
-              }
-            });
-            const activeNames = new Set(payload.visitors.map(v => v.nickname));
-            return newGuests.filter(g => activeNames.has(g.nickname));
-          });
-        } else if (payload.nickname && payload.rx != null) {
-          // 비율 좌표(rx/ry) → 픽셀 변환
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const px = payload.rx * rw, py = payload.ry * rh;
-          setGuests(prev => {
-            const exists = prev.find(g => g.nickname === payload.nickname);
-            if (exists) {
-              return prev.map(g =>
-                g.nickname === payload.nickname ? { ...g, x: px, y: py, flip: payload.flip, characterId: payload.characterId || g.characterId } : g
-              );
-            }
-            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip }];
-          });
-        }
+    const ch = joinLobby(nickname, {
+      onVisitRequest: (payload) => {
+        // 이미 방문 중이거나 다른 요청 처리 중이면 무시
+        if (visitModeRef.current === 'visiting' || hostChannelRef.current) return;
+        setVisitRequest({ from: payload.from, characterId: payload.characterId });
       },
-      onReady: () => { hostChannelReadyRef.current = true; console.log('[HOST] channel READY'); },
+    });
+    lobbyChannelRef.current = ch;
+    return () => { leaveLobby(ch); lobbyChannelRef.current = null; };
+  }, [nickname]);
+
+  // 호스트: 게스트 수신 핸들러 (승낙 시 사용)
+  const handleGuestUpdate = useCallback((payload) => {
+    if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+    if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+    if (payload.type === 'highfive') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const id = Date.now() + Math.random();
+      setHighFives(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
+      setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
+      return;
+    }
+    if (payload.type === 'tag') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const id = Date.now() + Math.random();
+      setTagEffects(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
+      setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
+      return;
+    }
+    if (payload.type === 'ball') {
+      Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
+        if (ballPhysicsRef.current[idx]) {
+          ballPhysicsRef.current[idx].x = bp.x;
+          ballPhysicsRef.current[idx].y = bp.y;
+          ballPhysicsRef.current[idx].vx = bp.vx;
+          ballPhysicsRef.current[idx].vy = bp.vy;
+        }
+      });
+      return;
+    }
+    if (payload.type === 'presence') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      setGuests(prev => {
+        const existing = new Set(prev.map(g => g.nickname));
+        const newGuests = [...prev];
+        payload.visitors.forEach(v => {
+          if (!existing.has(v.nickname)) {
+            newGuests.push({ nickname: v.nickname, characterId: v.characterId, x: rw * 0.3, y: rh * 0.5, flip: false });
+          }
+        });
+        const activeNames = new Set(payload.visitors.map(v => v.nickname));
+        return newGuests.filter(g => activeNames.has(g.nickname));
+      });
+    } else if (payload.nickname && payload.rx != null) {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const px = payload.rx * rw, py = payload.ry * rh;
+      setGuests(prev => {
+        const exists = prev.find(g => g.nickname === payload.nickname);
+        if (exists) {
+          return prev.map(g =>
+            g.nickname === payload.nickname ? { ...g, x: px, y: py, flip: payload.flip, characterId: payload.characterId || g.characterId } : g
+          );
+        }
+        return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip }];
+      });
+    }
+  }, [plantFlower, sendEmoji]);
+
+  // 호스트: 방문 요청 승낙
+  const handleAcceptVisit = useCallback(() => {
+    if (!visitRequest) return;
+    // 1. 호스트 visit-room 채널 생성 (게스트보다 먼저)
+    const ch = hostVisitRoom(nickname, equippedId, {
+      onGuestUpdate: handleGuestUpdate,
+      onReady: () => {
+        hostChannelReadyRef.current = true;
+        // 2. 채널 준비 완료 후 승낙 응답 전송
+        respondVisitRequest(lobbyChannelRef.current, visitRequest.from, true);
+      },
     });
     hostChannelRef.current = ch;
-    return () => { leaveVisitRoom(ch); hostChannelRef.current = null; hostChannelReadyRef.current = false; };
-  }, [nickname, equippedId]);
+    setVisitRequest(null);
+  }, [visitRequest, nickname, equippedId, handleGuestUpdate]);
+
+  // 호스트: 방문 요청 거절
+  const handleDeclineVisit = useCallback(() => {
+    if (!visitRequest) return;
+    respondVisitRequest(lobbyChannelRef.current, visitRequest.from, false);
+    setVisitRequest(null);
+  }, [visitRequest]);
+
+  // 호스트: 게스트 내보내기 (방문 종료)
+  const handleCloseHostChannel = useCallback(() => {
+    if (hostChannelRef.current) {
+      leaveVisitRoom(hostChannelRef.current);
+      hostChannelRef.current = null;
+      hostChannelReadyRef.current = false;
+    }
+    setGuests([]);
+  }, []);
 
   // 브로드캐스트는 애니메이션 tick에서 직접 실행 (broadcastInTick 함수)
   const broadcastInTick = useCallback(() => {
@@ -595,14 +636,169 @@ export default function MyRoom({ player, nickname, onBack }) {
         broadcastVisitPosition(hostChannelRef.current, 'host-chars', {
           type: 'full-state', chars: fullState, nickname, characterId: equippedId,
         });
-        if (now % 3000 < 200) console.log('[HOST-SEND] chars:', fullState.length, 'ch-state:', hostChannelRef.current?.state);
       }
-    } else if (Date.now() % 5000 < 200) {
-      console.log('[HOST-SKIP] ref:', !!hostChannelRef.current, 'ready:', hostChannelReadyRef.current);
     }
   }, [equippedId, nickname]);
 
-  // 놀러가기 핸들러
+  // 방문자: 호스트 상태 수신 핸들러
+  const handleHostUpdate = useCallback((payload) => {
+    if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+    if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+    if (payload.type === 'highfive') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const id = Date.now() + Math.random();
+      setHighFives(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
+      setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
+      return;
+    }
+    if (payload.type === 'tag') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const id = Date.now() + Math.random();
+      setTagEffects(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
+      setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
+      return;
+    }
+    if (payload.type === 'ball') {
+      Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
+        if (ballPhysicsRef.current[idx]) {
+          ballPhysicsRef.current[idx].x = bp.x;
+          ballPhysicsRef.current[idx].y = bp.y;
+          ballPhysicsRef.current[idx].vx = bp.vx;
+          ballPhysicsRef.current[idx].vy = bp.vy;
+        }
+      });
+      return;
+    }
+    if (payload.type === 'full-state' && payload.chars) {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      setCharStates(prev => {
+        const myChar = prev.find(c => Number(c.id) === equippedId);
+        const result = payload.chars.map(hc => {
+          if (Number(hc.id) === equippedId && myChar) return myChar;
+          const existing = prev.find(c => c.id === hc.id);
+          return {
+            ...(existing || {}),
+            id: hc.id, action: hc.action, flip: hc.flip,
+            speech: hc.speech, hidden: hc.hidden,
+            interacting: hc.interacting, riding: hc.riding, inTail: hc.inTail,
+            x: hc.rx * rw, y: hc.ry * rh,
+            actionTimer: existing?.actionTimer || Date.now() + 5000,
+            speechTimer: existing?.speechTimer || Date.now() + 10000,
+          };
+        });
+        if (myChar && !result.find(c => Number(c.id) === equippedId)) {
+          result.push(myChar);
+        }
+        return result;
+      });
+      if (payload.nickname) {
+        const hostChar = payload.chars.find(c => Number(c.id) === payload.characterId);
+        if (hostChar) {
+          const hx = hostChar.rx * rw, hy = hostChar.ry * rh;
+          setGuests(prev => {
+            const exists = prev.find(g => g.nickname === payload.nickname);
+            if (exists) {
+              return prev.map(g => g.nickname === payload.nickname
+                ? { ...g, x: hx, y: hy, flip: hostChar.flip, characterId: payload.characterId }
+                : g
+              );
+            }
+            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: hx, y: hy, flip: hostChar.flip, _isHost: true }];
+          });
+        }
+      }
+      return;
+    }
+    if (payload.nickname && payload.rx != null) {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const px = payload.rx * rw, py = payload.ry * rh;
+      setGuests(prev => {
+        const exists = prev.find(g => g.nickname === payload.nickname);
+        if (exists) {
+          return prev.map(g => g.nickname === payload.nickname
+            ? { ...g, x: px, y: py, flip: payload.flip, characterId: payload.characterId }
+            : g
+          );
+        }
+        return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip, _isHost: true }];
+      });
+    }
+  }, [equippedId, plantFlower, sendEmoji]);
+
+  // 방문자: 다른 게스트 수신 핸들러
+  const handleVisitorGuestUpdate = useCallback((payload) => {
+    if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+    if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+    if (payload.type === 'highfive' || payload.type === 'tag') return;
+    if (payload.type === 'ball') return;
+    if (payload.type === 'presence') {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      setGuests(prev => {
+        const newGuests = prev.filter(g => g._isHost);
+        payload.visitors.forEach(v => {
+          if (v.nickname !== nickname) {
+            const existing = prev.find(g => g.nickname === v.nickname);
+            newGuests.push(existing || { nickname: v.nickname, characterId: v.characterId, x: rw * 0.5, y: rh * 0.5, flip: false });
+          }
+        });
+        return newGuests;
+      });
+    } else if (payload.nickname && payload.nickname !== nickname && payload.rx != null) {
+      const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
+      const px = payload.rx * rw, py = payload.ry * rh;
+      setGuests(prev => {
+        const exists = prev.find(g => g.nickname === payload.nickname);
+        if (exists) {
+          return prev.map(g =>
+            g.nickname === payload.nickname ? { ...g, x: px, y: py, flip: payload.flip } : g
+          );
+        }
+        return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip }];
+      });
+    }
+  }, [nickname, plantFlower, sendEmoji]);
+
+  // 실제 방문 시작 (승낙 받은 후 호출)
+  const startVisiting = useCallback(async (hostNickname) => {
+    const data = await getRoomData(hostNickname);
+    if (!data) return;
+    visitModeRef.current = 'visiting';
+    // 상대방 방 레이아웃 로드
+    const hostLayout = Array.isArray(data.room_layout) ? data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]) : [];
+    setLayout(hostLayout);
+    // 상대방 보유 캐릭터로 교체
+    const hostChars = data.characters || [0];
+    const roomChars = hostChars.includes(equippedId) ? hostChars : [...hostChars, equippedId];
+    setCharStates(prev => {
+      const myEq = prev.find(c => Number(c.id) === equippedId);
+      return roomChars.map((id, i) => {
+        if (Number(id) === equippedId && myEq) return myEq;
+        return {
+          id, x: 40 + (i * (roomSize.w - 80) / Math.max(roomChars.length, 1)),
+          y: floorTop + Math.random() * (floorBottom - floorTop),
+          action: 'idle', targetX: null, targetY: null,
+          flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
+          interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
+        };
+      });
+    });
+    // 방문 채널 접속
+    const ch = joinVisitRoom(hostNickname, nickname, equippedId, {
+      onHostUpdate: handleHostUpdate,
+      onGuestUpdate: handleVisitorGuestUpdate,
+      onReady: () => { visitChannelReadyRef.current = true; },
+    });
+    visitChannelRef.current = ch;
+    setVisitMode('visiting');
+    setVisitWaiting(false);
+    // 요청 채널 정리
+    if (requestChannelRef.current) {
+      leaveLobby(requestChannelRef.current);
+      requestChannelRef.current = null;
+    }
+  }, [equippedId, nickname, roomSize, handleHostUpdate, handleVisitorGuestUpdate]);
+
+  // 놀러가기 핸들러 (요청 전송)
   const handleVisit = async () => {
     if (!visitTarget.trim()) return;
     // 자기 닉네임 입력 시 내 방으로 복귀
@@ -615,11 +811,11 @@ export default function MyRoom({ player, nickname, onBack }) {
       setVisitMode(null);
       setVisitTarget('');
       setGuests([]);
+      handleCloseHostChannel();
       try {
         const saved = localStorage.getItem(`room_layout_${nickname}`);
         if (saved) setLayout(JSON.parse(saved));
       } catch {}
-      // 내 보유 캐릭터로 복원
       setCharStates(ownedCharacters.map((id, i) => ({
         id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
         y: floorTop + Math.random() * (floorBottom - floorTop),
@@ -630,161 +826,41 @@ export default function MyRoom({ player, nickname, onBack }) {
       return;
     }
     setVisitError('');
+    // 닉네임 존재 확인
     const data = await getRoomData(visitTarget.trim());
     if (!data) { setVisitError('존재하지 않는 닉네임이에요'); return; }
-    // 방문 모드 ref를 먼저 설정하여 레이아웃 저장 방지
-    visitModeRef.current = 'visiting';
-    // 상대방 방 레이아웃 로드 (없으면 빈 방으로)
-    const hostLayout = Array.isArray(data.room_layout) ? data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]) : [];
-    setLayout(hostLayout);
-    // 상대방 보유 캐릭터로 교체 (내 장착 캐릭터만 포함)
-    const hostChars = data.characters || [0];
-    const roomChars = hostChars.includes(equippedId)
-      ? hostChars
-      : [...hostChars, equippedId];
-    setCharStates(prev => {
-      const myEq = prev.find(c => Number(c.id) === equippedId);
-      return roomChars.map((id, i) => {
-        if (Number(id) === equippedId && myEq) return myEq; // 내 캐릭터 위치 유지
-        return {
-          id, x: 40 + (i * (roomSize.w - 80) / Math.max(roomChars.length, 1)),
-          y: floorTop + Math.random() * (floorBottom - floorTop),
-          action: 'idle', targetX: null, targetY: null,
-          flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
-          interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
-        };
-      });
-    });
-    // 방문 채널 접속
-    const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
-      onHostUpdate: (payload) => {
-        console.log('[VISITOR] onHostUpdate:', payload.type || 'position');
-        // 꽃/이모지는 비율 좌표로 수신 → plantFlower/sendEmoji에서 변환
-        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
-        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
-        if (payload.type === 'highfive') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const id = Date.now() + Math.random();
-          setHighFives(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
-          setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
-          return;
-        }
-        if (payload.type === 'tag') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const id = Date.now() + Math.random();
-          setTagEffects(prev => [...prev, { id, x: payload.x * rw, y: payload.y * rh, createdAt: Date.now() }]);
-          setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
-          return;
-        }
-        if (payload.type === 'ball') {
-          Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
-            if (ballPhysicsRef.current[idx]) {
-              ballPhysicsRef.current[idx].x = bp.x;
-              ballPhysicsRef.current[idx].y = bp.y;
-              ballPhysicsRef.current[idx].vx = bp.vx;
-              ballPhysicsRef.current[idx].vy = bp.vy;
-            }
-          });
-          return;
-        }
-        // 호스트 전체 캐릭터 상태 수신 → 비율 → 픽셀 변환 후 charStates 동기화
-        if (payload.type === 'full-state' && payload.chars) {
-          console.log('[VISITOR-RECV] full-state received, chars:', payload.chars.length);
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          setCharStates(prev => {
-            // 방문자 자신의 캐릭터는 반드시 보존
-            const myChar = prev.find(c => Number(c.id) === equippedId);
-            const result = payload.chars.map(hc => {
-              // 내 캐릭터 ID가 호스트에도 있으면 내 로컬 상태 유지
-              if (Number(hc.id) === equippedId && myChar) return myChar;
-              const existing = prev.find(c => c.id === hc.id);
-              return {
-                ...(existing || {}),
-                id: hc.id, action: hc.action, flip: hc.flip,
-                speech: hc.speech, hidden: hc.hidden,
-                interacting: hc.interacting, riding: hc.riding, inTail: hc.inTail,
-                x: hc.rx * rw, y: hc.ry * rh,
-                actionTimer: existing?.actionTimer || Date.now() + 5000,
-                speechTimer: existing?.speechTimer || Date.now() + 10000,
-              };
-            });
-            // 내 캐릭터가 호스트 목록에 없으면 추가 (호스트가 내 캐릭터를 안 가진 경우)
-            if (myChar && !result.find(c => Number(c.id) === equippedId)) {
-              result.push(myChar);
-            }
-            return result;
-          });
-          // 호스트 장착캐릭터 → guests에 반영 (닉네임 표시 + 상호작용 감지용, 스프라이트는 비렌더)
-          if (payload.nickname) {
-            const hostChar = payload.chars.find(c => Number(c.id) === payload.characterId);
-            if (hostChar) {
-              const hx = hostChar.rx * rw, hy = hostChar.ry * rh;
-              setGuests(prev => {
-                const exists = prev.find(g => g.nickname === payload.nickname);
-                if (exists) {
-                  return prev.map(g => g.nickname === payload.nickname
-                    ? { ...g, x: hx, y: hy, flip: hostChar.flip, characterId: payload.characterId }
-                    : g
-                  );
-                }
-                return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: hx, y: hy, flip: hostChar.flip, _isHost: true }];
-              });
-            }
-          }
-          return;
-        }
-        // 단일 위치 수신 (fallback, 비율 좌표)
-        if (payload.nickname && payload.rx != null) {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const px = payload.rx * rw, py = payload.ry * rh;
-          setGuests(prev => {
-            const exists = prev.find(g => g.nickname === payload.nickname);
-            if (exists) {
-              return prev.map(g => g.nickname === payload.nickname
-                ? { ...g, x: px, y: py, flip: payload.flip, characterId: payload.characterId }
-                : g
-              );
-            }
-            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip, _isHost: true }];
-          });
+    // 방문 요청 전송 → 승낙 대기
+    setVisitWaiting(true);
+    visitWaitingRef.current = true;
+    const targetName = visitTarget.trim();
+    const ch = sendVisitRequest(targetName, nickname, equippedId, {
+      onAccepted: () => {
+        // 승낙됨! 방문 시작
+        startVisiting(targetName);
+      },
+      onDeclined: () => {
+        setVisitWaiting(false);
+        visitWaitingRef.current = false;
+        setVisitError('상대방이 거절했어요');
+        if (requestChannelRef.current) {
+          leaveLobby(requestChannelRef.current);
+          requestChannelRef.current = null;
         }
       },
-      onGuestUpdate: (payload) => {
-        // 꽃/이모지는 비율 좌표로 수신
-        if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
-        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
-        if (payload.type === 'highfive' || payload.type === 'tag') return;
-        if (payload.type === 'ball') return;
-        if (payload.type === 'presence') {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          setGuests(prev => {
-            const newGuests = prev.filter(g => g._isHost);
-            payload.visitors.forEach(v => {
-              if (v.nickname !== nickname) {
-                const existing = prev.find(g => g.nickname === v.nickname);
-                newGuests.push(existing || { nickname: v.nickname, characterId: v.characterId, x: rw * 0.5, y: rh * 0.5, flip: false });
-              }
-            });
-            return newGuests;
-          });
-        } else if (payload.nickname && payload.nickname !== nickname && payload.rx != null) {
-          const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
-          const px = payload.rx * rw, py = payload.ry * rh;
-          setGuests(prev => {
-            const exists = prev.find(g => g.nickname === payload.nickname);
-            if (exists) {
-              return prev.map(g =>
-                g.nickname === payload.nickname ? { ...g, x: px, y: py, flip: payload.flip } : g
-              );
-            }
-            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: px, y: py, flip: payload.flip }];
-          });
-        }
-      },
-      onReady: () => { visitChannelReadyRef.current = true; console.log('[VISITOR] channel READY'); },
     });
-    visitChannelRef.current = ch;
-    setVisitMode('visiting');
+    requestChannelRef.current = ch;
+    // 30초 타임아웃
+    setTimeout(() => {
+      if (visitWaitingRef.current) {
+        setVisitWaiting(false);
+        visitWaitingRef.current = false;
+        setVisitError('상대방이 응답하지 않아요');
+        if (requestChannelRef.current) {
+          leaveLobby(requestChannelRef.current);
+          requestChannelRef.current = null;
+        }
+      }
+    }, 30000);
     playClick();
   };
 
@@ -1586,8 +1662,8 @@ export default function MyRoom({ player, nickname, onBack }) {
               onPointerUp={handlePointerUp}
               style={{
                 position: 'absolute',
-                left: `${(renderX / 300) * 100}%`,
-                top: `${(renderY / 200) * 100}%`,
+                left: (renderX / 300) * roomSize.w,
+                top: (renderY / 200) * roomSize.h,
                 cursor: editMode ? 'grab' : 'default',
                 zIndex: f.wallMount ? 1 : Math.floor((renderY / 200) * roomSize.h),
                 filter: editMode ? 'brightness(1.2) drop-shadow(0 0 4px var(--gold))' : 'none',
@@ -2155,22 +2231,13 @@ export default function MyRoom({ player, nickname, onBack }) {
           background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 10000,
         }} onClick={() => {
-          // 취소 시: 이미 방문 채널을 끊었으므로 내 방으로 복귀
           visitModeRef.current = null;
           setVisitMode(null);
           setVisitTarget('');
+          setVisitWaiting(false);
+          visitWaitingRef.current = false;
           setGuests([]);
-          try {
-            const saved = localStorage.getItem(`room_layout_${nickname}`);
-            if (saved) setLayout(JSON.parse(saved));
-          } catch {}
-          setCharStates(ownedCharacters.map((id, i) => ({
-            id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
-            y: floorTop + Math.random() * (floorBottom - floorTop),
-            action: 'idle', targetX: null, targetY: null,
-            flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
-            interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
-          })));
+          if (requestChannelRef.current) { leaveLobby(requestChannelRef.current); requestChannelRef.current = null; }
         }}>
           <div style={{
             background: '#1a1a5e', border: '2px solid #4a4a8a', borderRadius: 10,
@@ -2198,28 +2265,55 @@ export default function MyRoom({ player, nickname, onBack }) {
                 {visitError}
               </div>
             )}
+            {visitWaiting && (
+              <div style={{ fontSize: 8, color: '#88ccff', marginTop: 6, fontFamily: "'Press Start 2P', monospace" }}>
+                {visitTarget}에게 요청 중...
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
               <button className="pixel-btn" onClick={() => {
                 visitModeRef.current = null;
                 setVisitMode(null);
                 setVisitTarget('');
+                setVisitWaiting(false);
+                visitWaitingRef.current = false;
                 setGuests([]);
-                try {
-                  const saved = localStorage.getItem(`room_layout_${nickname}`);
-                  if (saved) setLayout(JSON.parse(saved));
-                } catch {}
-                setCharStates(ownedCharacters.map((id, i) => ({
-                  id, x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
-                  y: floorTop + Math.random() * (floorBottom - floorTop),
-                  action: 'idle', targetX: null, targetY: null,
-                  flip: Math.random() > 0.5, actionTimer: Date.now() + randRange(1000, 3000),
-                  interacting: null, speech: null, speechTimer: Date.now() + randRange(6000, 16000),
-                })));
+                if (requestChannelRef.current) { leaveLobby(requestChannelRef.current); requestChannelRef.current = null; }
               }} style={{ fontSize: 9, padding: '5px 12px' }}>
                 취소
               </button>
-              <button className="pixel-btn gold" onClick={handleVisit} style={{ fontSize: 9, padding: '5px 12px' }}>
-                놀러가기
+              <button className="pixel-btn gold" onClick={handleVisit} disabled={visitWaiting} style={{ fontSize: 9, padding: '5px 12px', opacity: visitWaiting ? 0.5 : 1 }}>
+                {visitWaiting ? '대기중...' : '놀러가기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 방문 요청 팝업 (호스트 측) */}
+      {visitRequest && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10000,
+        }}>
+          <div style={{
+            background: '#1a1a5e', border: '2px solid #ffd700', borderRadius: 10,
+            padding: 20, minWidth: 250, textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>🚪</div>
+            <div style={{ fontSize: 10, color: '#fff', marginBottom: 6, fontFamily: "'Press Start 2P', monospace" }}>
+              <span style={{ color: '#ffd700' }}>{visitRequest.from}</span>이(가)
+            </div>
+            <div style={{ fontSize: 10, color: '#fff', marginBottom: 14, fontFamily: "'Press Start 2P', monospace" }}>
+              놀러오고 싶어해요!
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button className="pixel-btn" onClick={handleDeclineVisit} style={{ fontSize: 9, padding: '6px 14px' }}>
+                거절
+              </button>
+              <button className="pixel-btn gold" onClick={handleAcceptVisit} style={{ fontSize: 9, padding: '6px 14px' }}>
+                승낙
               </button>
             </div>
           </div>

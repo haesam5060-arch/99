@@ -349,6 +349,64 @@ export function leaveVisitRoom(channel) {
   supabase.removeChannel(channel);
 }
 
+// ── 로비 시스템 (방문 요청/승낙) ──
+
+// 개인 로비 채널 구독 (내 방에서 방문 요청을 수신)
+export function joinLobby(nickname, { onVisitRequest }) {
+  if (!supabase) return null;
+  const channel = supabase.channel(`lobby-${nickname}`, {
+    config: { broadcast: { self: false, ack: false } },
+  });
+  channel.on('broadcast', { event: 'visit-request' }, ({ payload }) => {
+    if (onVisitRequest) onVisitRequest(payload);
+  });
+  // visit-response 이벤트도 등록 (서버 라우팅용)
+  channel.on('broadcast', { event: 'visit-response' }, () => {});
+  channel.subscribe();
+  return channel;
+}
+
+// 방문 요청 보내기 (게스트 → 호스트 로비 채널에 접속 후 요청)
+export function sendVisitRequest(hostNickname, fromNickname, fromCharId, { onAccepted, onDeclined }) {
+  if (!supabase) return null;
+  const channel = supabase.channel(`lobby-${hostNickname}`, {
+    config: { broadcast: { self: false, ack: false } },
+  });
+  channel.on('broadcast', { event: 'visit-response' }, ({ payload }) => {
+    if (payload.to === fromNickname) {
+      if (payload.accepted) { if (onAccepted) onAccepted(); }
+      else { if (onDeclined) onDeclined(); }
+    }
+  });
+  channel.on('broadcast', { event: 'visit-request' }, () => {});
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      channel.send({
+        type: 'broadcast',
+        event: 'visit-request',
+        payload: { from: fromNickname, characterId: fromCharId },
+      });
+    }
+  });
+  return channel;
+}
+
+// 방문 승낙/거절 (호스트 → 자기 로비 채널에서 응답)
+export function respondVisitRequest(lobbyChannel, visitorNickname, accepted) {
+  if (!lobbyChannel) return;
+  lobbyChannel.send({
+    type: 'broadcast',
+    event: 'visit-response',
+    payload: { to: visitorNickname, accepted },
+  });
+}
+
+// 로비 채널 나가기
+export function leaveLobby(channel) {
+  if (!channel || !supabase) return;
+  supabase.removeChannel(channel);
+}
+
 // Get top 10 rankings (lightweight, for game screen)
 export async function getTop10Rankings() {
   if (!supabase) return [];
