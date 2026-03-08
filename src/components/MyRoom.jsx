@@ -552,24 +552,25 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => { leaveVisitRoom(ch); hostChannelRef.current = null; };
   }, [nickname, equippedId]);
 
-  // ── 상태 브로드캐스트 (비율 좌표 사용) ──
-  useEffect(() => {
-    const eq = charStates.find(c => Number(c.id) === equippedId);
+  // 브로드캐스트는 애니메이션 tick에서 직접 실행 (broadcastInTick 함수)
+  const broadcastInTick = useCallback(() => {
+    const chars = charStatesRef.current;
+    const eq = chars.find(c => Number(c.id) === equippedId);
     if (!eq) return;
-    const rw = roomSize.w || 1, rh = roomSize.h || 1;
+    const rw = roomSizeRef.current.w || 1, rh = roomSizeRef.current.h || 1;
     // 방문 중이면 상대방 채널에 guest-move (비율 좌표)
-    if (visitMode === 'visiting' && visitChannelRef.current) {
+    if (visitModeRef.current === 'visiting' && visitChannelRef.current) {
       broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
         nickname, characterId: equippedId,
         rx: eq.x / rw, ry: eq.y / rh, flip: eq.flip,
       });
     }
-    // 호스트로서: 전체 캐릭터 상태를 비율 좌표로 전송 (200ms 쓰로틀)
-    if (hostChannelRef.current && guests.length > 0) {
+    // 호스트로서: 전체 캐릭터 상태를 비율 좌표로 전송 (150ms 쓰로틀)
+    if (hostChannelRef.current) {
       const now = Date.now();
-      if (now - lastBroadcastRef.current > 200) {
+      if (now - lastBroadcastRef.current > 150) {
         lastBroadcastRef.current = now;
-        const fullState = charStates.map(c => ({
+        const fullState = chars.map(c => ({
           id: c.id, rx: c.x / rw, ry: c.y / rh,
           action: c.action, flip: c.flip,
           speech: c.speech, hidden: c.hidden,
@@ -580,7 +581,7 @@ export default function MyRoom({ player, nickname, onBack }) {
         });
       }
     }
-  }, [charStates, visitMode, equippedId, nickname, guests.length, roomSize]);
+  }, [equippedId, nickname]);
 
   // 놀러가기 핸들러
   const handleVisit = async () => {
@@ -1248,12 +1249,15 @@ export default function MyRoom({ player, nickname, onBack }) {
       // 하이파이브 & 꼬리잡기 감지 (매 프레임)
       checkGuestInteractions();
 
+      // 실시간 브로드캐스트 (tick에서 직접 실행 → React 렌더 대기 없이 즉시 전송)
+      broadcastInTick();
+
       animFrameRef.current = requestAnimationFrame(tick);
     };
 
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [editMode, findInteraction, roomSize, layout, checkGuestInteractions]);
+  }, [editMode, findInteraction, roomSize, layout, checkGuestInteractions, broadcastInTick]);
 
   const handleRemoveFurniture = (idx) => {
     playClick();

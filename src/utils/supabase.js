@@ -255,7 +255,9 @@ export async function getOnlineRankings() {
 export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { onGuestUpdate, onHostUpdate }) {
   if (!supabase) return null;
   const channelName = `visit-room-${hostNickname}`;
-  const channel = supabase.channel(channelName);
+  const channel = supabase.channel(channelName, {
+    config: { broadcast: { self: false, ack: false } },
+  });
 
   // 게스트 위치 수신 (방 주인 측)
   channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
@@ -294,7 +296,9 @@ export function joinVisitRoom(hostNickname, visitorNickname, visitorCharId, { on
 export function hostVisitRoom(hostNickname, hostCharId, { onGuestUpdate }) {
   if (!supabase) return null;
   const channelName = `visit-room-${hostNickname}`;
-  const channel = supabase.channel(channelName);
+  const channel = supabase.channel(channelName, {
+    config: { broadcast: { self: false, ack: false } },
+  });
 
   channel.on('broadcast', { event: 'guest-move' }, ({ payload }) => {
     if (onGuestUpdate) onGuestUpdate(payload);
