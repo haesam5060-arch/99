@@ -199,7 +199,8 @@ export default function MyRoom({ player, nickname, onBack }) {
   const joystickRef = useRef({ active: false, dx: 0, dy: 0 }); // 모바일 조이스틱
 
   const ownedCharacters = player.characters || [0];
-  const equippedId = player.equippedCharacter ?? ownedCharacters[0];
+  const equippedId = Number(player.equippedCharacter ?? ownedCharacters[0]);
+  const [ridingTruckIdx, setRidingTruckIdx] = useState(null); // 탑승 중인 트럭 layout index
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
@@ -311,7 +312,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     const tick = () => {
       setCharStates(prev => prev.map(ch => {
         // 장착 캐릭터는 플레이어가 직접 조작
-        if (ch.id === equippedId) {
+        if (Number(ch.id) === equippedId) {
           const keys = keysRef.current;
           const joy = joystickRef.current;
           let dx = 0, dy = 0;
@@ -324,8 +325,9 @@ export default function MyRoom({ player, nickname, onBack }) {
           const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
           if (moving) {
             const len = Math.sqrt(dx * dx + dy * dy);
-            const nx = (dx / len) * PLAYER_SPEED;
-            const ny = (dy / len) * PLAYER_SPEED;
+            const speed = ch.riding ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
+            const nx = (dx / len) * speed;
+            const ny = (dy / len) * speed;
             const newX = Math.max(10, Math.min(roomSize.w - 10, ch.x + nx));
             const newY = Math.max(roomSize.h * 0.35, Math.min(roomSize.h * 0.92, ch.y + ny));
             return { ...ch, x: newX, y: newY, flip: dx < 0 ? true : dx > 0 ? false : ch.flip, action: 'walk' };
@@ -622,6 +624,40 @@ export default function MyRoom({ player, nickname, onBack }) {
     setDragging(null);
   };
 
+  // 장착 캐릭터와 가까운 트럭 감지
+  const equippedChar = charStates.find(ch => Number(ch.id) === equippedId);
+  const nearbyTruckIdx = (() => {
+    if (!equippedChar || ridingTruckIdx != null) return null;
+    for (let i = 0; i < layout.length; i++) {
+      if (layout[i].id !== 'toyTruck') continue;
+      const f = FURNITURE_DEFS[layout[i].id];
+      const truckPx = (layout[i].x / 300) * roomSize.w + (f.w * SCALE) / 2;
+      const truckPy = (layout[i].y / 200) * roomSize.h + (f.h * SCALE) / 2;
+      const dx = equippedChar.x - truckPx;
+      const dy = equippedChar.y - truckPy;
+      if (Math.sqrt(dx * dx + dy * dy) < 50) return i;
+    }
+    return null;
+  })();
+
+  const handleRide = () => {
+    if (nearbyTruckIdx != null) {
+      playClick();
+      setRidingTruckIdx(nearbyTruckIdx);
+      setCharStates(prev => prev.map(ch =>
+        Number(ch.id) === equippedId ? { ...ch, riding: true, speech: '부릉부릉~!', speechTimer: Date.now() + 3000 } : ch
+      ));
+    }
+  };
+
+  const handleDismount = () => {
+    playClick();
+    setRidingTruckIdx(null);
+    setCharStates(prev => prev.map(ch =>
+      Number(ch.id) === equippedId ? { ...ch, riding: false, speech: '도착~!', speechTimer: Date.now() + 3000 } : ch
+    ));
+  };
+
   return (
     <div className="game-container" style={{ justifyContent: 'flex-start', paddingTop: 10 }}>
       <style>{`
@@ -699,6 +735,8 @@ export default function MyRoom({ player, nickname, onBack }) {
         {layout.map((item, idx) => {
           const f = FURNITURE_DEFS[item.id];
           if (!f) return null;
+          // 탑승 중인 트럭은 숨김 (캐릭터 위치에서 렌더링)
+          if (idx === ridingTruckIdx) return null;
           // 축구공은 동적 위치 사용
           const dynamicPos = (!editMode && item.id === 'soccerBall' && ballPositions[idx]) ? ballPositions[idx] : null;
           const renderX = dynamicPos ? dynamicPos.x : item.x;
@@ -761,16 +799,64 @@ export default function MyRoom({ player, nickname, onBack }) {
               sleeping={ch.action === 'sleep'}
               scale={SCALE}
             />
-            {/* 장착 캐릭터 표시 화살표 */}
-            {ch.id === equippedId && (
+            {/* 탑승 중이면 트럭을 캐릭터 아래에 렌더링 */}
+            {Number(ch.id) === equippedId && ridingTruckIdx != null && (
               <div style={{
-                position: 'absolute', left: ch.x, top: ch.y - 42,
-                transform: 'translateX(-50%)',
-                fontSize: 10, color: '#ffcc00',
-                animation: 'zzzFloat 1.5s ease-in-out infinite',
-                zIndex: 9998, pointerEvents: 'none',
-                textShadow: '0 0 4px rgba(255,200,0,0.8)',
-              }}>▼</div>
+                position: 'absolute',
+                left: ch.x - 22,
+                top: ch.y - 8,
+                zIndex: Math.floor(ch.y) - 1,
+                transform: `scaleX(${ch.flip ? -1 : 1})`,
+                pointerEvents: 'none',
+              }}>
+                <FurnitureCanvas furnitureId="toyTruck" scale={SCALE} />
+              </div>
+            )}
+            {/* 장착 캐릭터 표시 화살표 + 타기/내리기 버튼 */}
+            {Number(ch.id) === equippedId && (
+              <>
+                <div style={{
+                  position: 'absolute', left: ch.x, top: ch.y - 42,
+                  transform: 'translateX(-50%)',
+                  fontSize: 10, color: '#ffcc00',
+                  animation: 'zzzFloat 1.5s ease-in-out infinite',
+                  zIndex: 9998, pointerEvents: 'none',
+                  textShadow: '0 0 4px rgba(255,200,0,0.8)',
+                }}>▼</div>
+                {/* 타기 버튼 */}
+                {nearbyTruckIdx != null && ridingTruckIdx == null && (
+                  <button onClick={handleRide} style={{
+                    position: 'absolute', left: ch.x, top: ch.y - 58,
+                    transform: 'translateX(-50%)',
+                    zIndex: 9999,
+                    background: 'linear-gradient(135deg, #ff6644, #cc3322)',
+                    color: '#fff', border: '2px solid #fff',
+                    borderRadius: 6, padding: '3px 8px',
+                    fontSize: 8, fontFamily: "'Press Start 2P', monospace",
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    animation: 'zzzFloat 1s ease-in-out infinite',
+                  }}>
+                    타기
+                  </button>
+                )}
+                {/* 내리기 버튼 */}
+                {ridingTruckIdx != null && (
+                  <button onClick={handleDismount} style={{
+                    position: 'absolute', left: ch.x, top: ch.y - 58,
+                    transform: 'translateX(-50%)',
+                    zIndex: 9999,
+                    background: 'linear-gradient(135deg, #4488cc, #336699)',
+                    color: '#fff', border: '2px solid #fff',
+                    borderRadius: 6, padding: '3px 8px',
+                    fontSize: 8, fontFamily: "'Press Start 2P', monospace",
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                  }}>
+                    내리기
+                  </button>
+                )}
+              </>
             )}
             {ch.speech && (() => {
               const isSkill = ch.speech.endsWith('!');
