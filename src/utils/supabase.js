@@ -81,7 +81,7 @@ export async function registerPlayer(nickname, password) {
   return { success: true, player: data };
 }
 
-// Login (verify nickname + password) — also resets monthly if needed
+// Login (verify nickname + password) — also resets weekly if needed
 export async function loginPlayer(nickname, password) {
   if (!supabase) return { success: false, error: 'offline' };
   const { data, error } = await supabase

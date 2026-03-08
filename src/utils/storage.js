@@ -1,8 +1,15 @@
 const STORAGE_KEY = 'gugudan_players';
 
-function getCurrentMonth() {
+function getCurrentWeek() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(now);
+  monday.setDate(diff);
+  const year = monday.getFullYear();
+  const month = String(monday.getMonth() + 1).padStart(2, '0');
+  const date = String(monday.getDate()).padStart(2, '0');
+  return `${year}-W${month}${date}`;
 }
 
 function getAllPlayers() {
@@ -18,11 +25,11 @@ function savePlayers(players) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
 }
 
-// Reset monthly totalEarned if needed
-function checkMonthlyReset(player) {
-  if (player.earnedMonth !== getCurrentMonth()) {
+// Reset weekly totalEarned if needed
+function checkWeeklyReset(player) {
+  if (player.earnedMonth !== getCurrentWeek()) {
     player.totalEarned = 0;
-    player.earnedMonth = getCurrentMonth();
+    player.earnedMonth = getCurrentWeek();
   }
   return player;
 }
@@ -30,7 +37,7 @@ function checkMonthlyReset(player) {
 export function getPlayer(nickname) {
   const players = getAllPlayers();
   if (!players[nickname]) return null;
-  const player = checkMonthlyReset(players[nickname]);
+  const player = checkWeeklyReset(players[nickname]);
   savePlayers(players);
   return player;
 }
@@ -41,7 +48,7 @@ export function createPlayer(nickname) {
     players[nickname] = {
       score: 0,
       totalEarned: 0,
-      earnedMonth: getCurrentMonth(),
+      earnedMonth: getCurrentWeek(),
       characters: [0], // worm is default
       equippedCharacter: 0,
       createdAt: new Date().toISOString(),
@@ -49,13 +56,13 @@ export function createPlayer(nickname) {
     };
     savePlayers(players);
   }
-  return checkMonthlyReset(players[nickname]);
+  return checkWeeklyReset(players[nickname]);
 }
 
 export function updatePlayerScore(nickname, scoreChange) {
   const players = getAllPlayers();
   if (!players[nickname]) return null;
-  checkMonthlyReset(players[nickname]);
+  checkWeeklyReset(players[nickname]);
   players[nickname].score = Math.max(0, players[nickname].score + scoreChange);
   if (scoreChange > 0) {
     players[nickname].totalEarned += scoreChange;
@@ -104,7 +111,7 @@ export function equipCharacter(nickname, characterId) {
 
 export function getRankings() {
   const players = getAllPlayers();
-  const currentMonth = getCurrentMonth();
+  const currentMonth = getCurrentWeek();
   return Object.entries(players)
     .map(([name, data]) => ({
       name,

@@ -412,7 +412,7 @@ export default function GamePlay({
           <div style={{
             position: 'absolute',
             top: '50%',
-            right: 8,
+            left: 8,
             transform: 'translateY(-50%)',
             pointerEvents: 'none',
             fontFamily: "'Press Start 2P', monospace",
@@ -420,38 +420,53 @@ export default function GamePlay({
           }}>
             {top10.map((r, i) => (
               <div key={r.name} style={{
-                fontSize: 7,
-                padding: '3px 0',
-                color: r.isMe ? 'rgba(255, 215, 0, 0.5)' : 'rgba(255, 255, 255, 0.15)',
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 6,
+                fontSize: 11,
+                padding: '4px 0',
+                color: r.isMe ? 'rgba(255, 215, 0, 0.55)' : 'rgba(255, 255, 255, 0.18)',
                 whiteSpace: 'nowrap',
-                textAlign: 'right',
+                textAlign: 'left',
                 transition: 'all 0.3s ease',
               }}>
                 <span style={{
+                  width: 30,
+                  display: 'inline-block',
                   color: r.isMe
-                    ? 'rgba(255, 215, 0, 0.6)'
-                    : i === 0 ? 'rgba(255, 215, 0, 0.3)'
-                    : i === 1 ? 'rgba(192, 192, 192, 0.3)'
-                    : i === 2 ? 'rgba(205, 127, 50, 0.3)'
-                    : 'rgba(136, 136, 136, 0.2)',
+                    ? 'rgba(255, 215, 0, 0.65)'
+                    : i === 0 ? 'rgba(255, 215, 0, 0.35)'
+                    : i === 1 ? 'rgba(192, 192, 192, 0.35)'
+                    : i === 2 ? 'rgba(205, 127, 50, 0.35)'
+                    : 'rgba(136, 136, 136, 0.22)',
                 }}>
                   {i + 1}위
                 </span>
-                {' '}
-                <span>{r.name}</span>
-                {r.isMe && <span style={{ color: 'rgba(255, 215, 0, 0.4)', fontSize: 6 }}> ←</span>}
+                <span style={{ width: 70, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {r.name}
+                </span>
+                <span style={{ fontSize: 9, color: r.isMe ? 'rgba(255, 215, 0, 0.45)' : 'rgba(255, 255, 255, 0.12)' }}>
+                  {r.totalEarned.toLocaleString()}P
+                </span>
+                {r.isMe && <span style={{ color: 'rgba(255, 215, 0, 0.5)', fontSize: 9 }}>◀</span>}
               </div>
             ))}
             {!inTop10 && (
               <div style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 6,
                 marginTop: 4,
-                fontSize: 7,
-                color: 'rgba(255, 215, 0, 0.5)',
-                textAlign: 'right',
+                fontSize: 11,
+                color: 'rgba(255, 215, 0, 0.55)',
+                textAlign: 'left',
                 borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                 paddingTop: 4,
               }}>
-                {myRank}위 {nickname} ←
+                <span style={{ width: 30 }}>{myRank}위</span>
+                <span style={{ width: 70 }}>{nickname}</span>
+                <span style={{ fontSize: 9 }}>{myTotalEarned.toLocaleString()}P</span>
+                <span style={{ fontSize: 9 }}>◀</span>
               </div>
             )}
           </div>
