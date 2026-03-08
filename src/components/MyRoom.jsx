@@ -196,6 +196,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [ballPositions, setBallPositions] = useState({}); // { layoutIdx: { x, y } } 가상좌표
   const [goalCelebration, setGoalCelebration] = useState(null); // { x, y, particles }
   const goalCooldownRef = useRef(false);
+  const lastKickerRef = useRef({}); // { ballIdx: characterId } 마지막으로 공을 찬 캐릭터
   const ballPhysicsRef = useRef({}); // { layoutIdx: { x, y, vx, vy } } 가상좌표
   const charStatesRef = useRef([]); // 축구공 물리용 최신 캐릭터 상태 참조
   const roomRef = useRef(null);
@@ -1026,6 +1027,7 @@ export default function MyRoom({ player, nickname, onBack }) {
             const ny = dy / dist;
             bp.vx = nx * KICK_FORCE + (Math.random() - 0.5) * 1.0;
             bp.vy = ny * KICK_FORCE + (Math.random() - 0.5) * 1.0;
+            lastKickerRef.current[idxStr] = Number(ch.id); // 마지막으로 찬 캐릭터 기록
             ballChanged = true;
           }
         });
@@ -1077,12 +1079,15 @@ export default function MyRoom({ player, nickname, onBack }) {
                 setGoalCelebration({ x: goalScreenX, y: goalScreenY, particles });
                 // 공 리셋: 골대에서 좀 떨어진 곳으로
                 bp.x = 150; bp.y = 130; bp.vx = 0; bp.vy = 0;
-                // 보상: 골 1회당 5점
-                if (isOnline()) {
-                  updateOnlineScore(nickname, 5);
-                } else {
-                  updatePlayerScore(nickname, 5);
+                // 보상: 유저 조작 캐릭터가 찬 골만 +5점
+                if (lastKickerRef.current[idxStr] === equippedId) {
+                  if (isOnline()) {
+                    updateOnlineScore(nickname, 5);
+                  } else {
+                    updatePlayerScore(nickname, 5);
+                  }
                 }
+                lastKickerRef.current[idxStr] = null; // 리셋
                 // 3초 후 쿨다운 해제 & 축하 제거
                 setTimeout(() => {
                   goalCooldownRef.current = false;
