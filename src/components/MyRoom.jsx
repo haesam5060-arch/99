@@ -215,6 +215,10 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [yardCharPos, setYardCharPos] = useState({ x: 150, y: 160 }); // 가상좌표 300x200
   const [doorChoice, setDoorChoice] = useState(false); // 문 선택 팝업
   const yardCharFlip = useRef(false);
+  const yardModeRef = useRef(null);
+  const yardFlowersRef = useRef([]);
+  const yardCharPosRef = useRef({ x: 150, y: 160 });
+  const yardOwnerRef = useRef('');
 
   // 앞마당 꽃 종류 (5가지)
   const YARD_FLOWER_TYPES = [
@@ -411,6 +415,11 @@ export default function MyRoom({ player, nickname, onBack }) {
       }
       if (e.key === ' ' || e.key === 'Spacebar') {
         e.preventDefault();
+        // 앞마당 모드에서는 별도 처리 (꽃 심기/뽑기는 버튼의 onClick과 동일)
+        if (yardModeRef.current) {
+          document.querySelector('[data-yard-action]')?.click();
+          return;
+        }
         if (duel || quiz) return; // 이미 퀴즈 중이면 무시
         const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
         if (!eq) return;
@@ -1198,8 +1207,267 @@ export default function MyRoom({ player, nickname, onBack }) {
         </button>
       </div>
 
+      {/* ── 앞마당 뷰 ── */}
+      {yardMode && (
+        <>
+          <div style={{
+            position: 'relative', width: '100%', maxWidth: 600,
+            aspectRatio: '3 / 2', borderRadius: 8, overflow: 'hidden',
+            border: '2px solid #44aa44',
+          }}>
+            {/* 하늘 */}
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, height: '25%',
+              background: 'linear-gradient(180deg, #88ccff 0%, #aaddff 60%, #cceecc 100%)',
+            }} />
+            {/* 구름 */}
+            <div style={{
+              position: 'absolute', top: '5%', left: '15%', width: 40, height: 14,
+              background: '#fff', borderRadius: 10, opacity: 0.7,
+              boxShadow: '12px 2px 0 #fff, -8px 3px 0 #fff, 6px -2px 0 #fff',
+            }} />
+            <div style={{
+              position: 'absolute', top: '10%', right: '20%', width: 30, height: 10,
+              background: '#fff', borderRadius: 8, opacity: 0.5,
+              boxShadow: '8px 1px 0 #fff, -6px 2px 0 #fff',
+            }} />
+            {/* 울타리 */}
+            <div style={{
+              position: 'absolute', top: '22%', left: 0, right: 0, height: 14,
+              display: 'flex', justifyContent: 'space-evenly', alignItems: 'flex-end',
+              zIndex: 1,
+            }}>
+              {Array.from({ length: 20 }).map((_, i) => (
+                <div key={`fence-${i}`} style={{
+                  width: 6, height: i % 2 === 0 ? 14 : 10,
+                  background: i % 2 === 0 ? '#b88844' : '#aa7733',
+                  borderRadius: '1px 1px 0 0',
+                  boxShadow: '0 -1px 0 #dda866',
+                }} />
+              ))}
+            </div>
+            <div style={{
+              position: 'absolute', top: 'calc(22% + 6px)', left: 0, right: 0, height: 3,
+              background: '#996633', zIndex: 1,
+            }} />
+            {/* 잔디 바닥 */}
+            <div style={{
+              position: 'absolute', top: '25%', left: 0, right: 0, bottom: 0,
+              background: 'linear-gradient(180deg, #55aa44 0%, #449933 30%, #3d8830 100%)',
+            }} />
+            {/* 텃밭 영역 */}
+            <div style={{
+              position: 'absolute', top: '30%', left: '5%', right: '5%', bottom: '8%',
+              display: 'grid',
+              gridTemplateColumns: `repeat(${YARD_COLS}, 1fr)`,
+              gridTemplateRows: `repeat(${YARD_ROWS}, 1fr)`,
+              gap: 3, padding: 4,
+              background: 'rgba(80,50,20,0.3)', borderRadius: 6,
+              border: '2px solid rgba(139,90,43,0.4)',
+            }}>
+              {Array.from({ length: YARD_COLS * YARD_ROWS }).map((_, i) => {
+                const gx = i % YARD_COLS;
+                const gy = Math.floor(i / YARD_COLS);
+                const flower = yardFlowers.find(f => f.gridX === gx && f.gridY === gy);
+                const fType = flower ? YARD_FLOWER_TYPES[flower.type % YARD_FLOWER_TYPES.length] : null;
+                // 캐릭터 위치와 비교해서 하이라이트
+                const cellCenterX = (5 + (gx + 0.5) * (90 / YARD_COLS)) * 3; // approx px
+                const cellCenterY = (30 + (gy + 0.5) * (62 / YARD_ROWS)) * 2;
+                const charScreenX = (yardCharPos.x / 300) * 600;
+                const charScreenY = (yardCharPos.y / 200) * 400;
+                const isNear = Math.abs(cellCenterX - charScreenX) < 30 && Math.abs(cellCenterY - charScreenY) < 25;
+                return (
+                  <div key={`plot-${i}`} style={{
+                    background: flower
+                      ? 'linear-gradient(180deg, #6b4226, #5a3520)'
+                      : 'linear-gradient(180deg, #7a5533, #6b4226)',
+                    borderRadius: 3,
+                    border: isNear
+                      ? (yardMode === 'own' && !flower ? '2px solid #ffcc00' : flower && yardMode === 'visiting' ? '2px solid #ff4444' : '1px solid #8b5a2b')
+                      : '1px solid #8b5a2b',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    position: 'relative', overflow: 'visible',
+                    boxShadow: isNear ? '0 0 8px rgba(255,200,0,0.4)' : 'inset 0 1px 2px rgba(0,0,0,0.3)',
+                  }}>
+                    {flower && fType && (
+                      <svg viewBox="0 0 24 30" style={{ width: '80%', height: '90%', overflow: 'visible' }}>
+                        {/* 줄기 */}
+                        <line x1="12" y1="14" x2="12" y2="28" stroke={fType.stem} strokeWidth="2" />
+                        <line x1="12" y1="20" x2="8" y2="18" stroke={fType.stem} strokeWidth="1.5" />
+                        <ellipse cx="7" cy="17.5" rx="2.5" ry="1.5" fill="#44aa33" />
+                        {/* 꽃잎 */}
+                        {[0, 60, 120, 180, 240, 300].map((angle, pi) => (
+                          <ellipse key={pi}
+                            cx={12 + Math.cos(angle * Math.PI / 180) * 5}
+                            cy={10 + Math.sin(angle * Math.PI / 180) * 5}
+                            rx="3.5" ry="3"
+                            fill={pi % 2 === 0 ? fType.color1 : fType.color2}
+                            stroke={fType.color3} strokeWidth="0.3"
+                          />
+                        ))}
+                        {/* 꽃 중심 */}
+                        <circle cx="12" cy="10" r="3" fill={fType.color2} />
+                        <circle cx="12" cy="10" r="1.5" fill={fType.color3} />
+                      </svg>
+                    )}
+                    {!flower && (
+                      <div style={{
+                        width: '40%', height: '40%', borderRadius: '50%',
+                        background: 'rgba(100,70,40,0.5)',
+                        border: '1px dashed rgba(139,90,43,0.4)',
+                      }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* 앞마당 주인 표시 */}
+            <div style={{
+              position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)',
+              fontSize: 9, color: '#fff', fontFamily: "'Press Start 2P', monospace",
+              textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+              background: 'rgba(0,0,0,0.3)', padding: '3px 10px', borderRadius: 6,
+              zIndex: 5,
+            }}>
+              {yardOwner === nickname ? '내 앞마당' : `${yardOwner}의 앞마당`}
+            </div>
+            {/* 캐릭터 */}
+            <div style={{
+              position: 'absolute',
+              left: `${(yardCharPos.x / 300) * 100}%`,
+              top: `${(yardCharPos.y / 200) * 100}%`,
+              transform: `translateX(-50%) scaleX(${yardCharFlip.current ? -1 : 1})`,
+              zIndex: 10,
+              pointerEvents: 'none',
+            }}>
+              <RoomCharacter characterId={equippedId} x={0} y={0} flip={false} sleeping={false} scale={SCALE} />
+            </div>
+            {/* 안내 텍스트 */}
+            <div style={{
+              position: 'absolute', bottom: 4, left: '50%', transform: 'translateX(-50%)',
+              fontSize: 7, color: '#ffe',
+              fontFamily: "'Press Start 2P', monospace",
+              textShadow: '1px 1px 0 #000',
+              background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: 4,
+              zIndex: 5, whiteSpace: 'nowrap',
+            }}>
+              {yardMode === 'own' ? 'SPACE: 꽃 심기' : 'SPACE: 꽃 뽑기'}
+            </div>
+          </div>
+          {/* 앞마당 조이스틱 + 버튼 */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginTop: 0 }}>
+            <div
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                joystickRef.current = { active: true, cx, cy, dx: 0, dy: 0, id: e.pointerId };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (!joystickRef.current.active) return;
+                const { cx, cy } = joystickRef.current;
+                const maxR = 20;
+                let dx = e.clientX - cx;
+                let dy = e.clientY - cy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > maxR) { dx = (dx / dist) * maxR; dy = (dy / dist) * maxR; }
+                joystickRef.current.dx = dx / maxR;
+                joystickRef.current.dy = dy / maxR;
+              }}
+              onPointerUp={() => { joystickRef.current = { active: false, dx: 0, dy: 0 }; }}
+              onPointerCancel={() => { joystickRef.current = { active: false, dx: 0, dy: 0 }; }}
+              style={{
+                marginTop: 8, width: 70, height: 70, borderRadius: '50%',
+                background: 'radial-gradient(circle, #2a6e2a, #1a4e1a)',
+                border: '2px solid #4a8a4a',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                touchAction: 'none', cursor: 'pointer', userSelect: 'none',
+                position: 'relative',
+              }}
+            >
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%',
+                background: 'radial-gradient(circle, #6aae6a, #4a8e4a)',
+                border: '1px solid #8abe8a',
+              }} />
+            </div>
+            {/* 꽃 심기/뽑기 버튼 */}
+            <button
+              onClick={() => {
+                if (yardMode === 'own') {
+                  // 가장 가까운 빈 칸에 꽃 심기
+                  let bestDist = Infinity, bestGx = -1, bestGy = -1;
+                  for (let gy = 0; gy < YARD_ROWS; gy++) {
+                    for (let gx = 0; gx < YARD_COLS; gx++) {
+                      if (yardFlowers.find(f => f.gridX === gx && f.gridY === gy)) continue;
+                      const cellX = (5 + (gx + 0.5) * (90 / YARD_COLS)) * 3;
+                      const cellY = (30 + (gy + 0.5) * (62 / YARD_ROWS)) * 2;
+                      const charX = (yardCharPos.x / 300) * 600;
+                      const charY = (yardCharPos.y / 200) * 400;
+                      const d = Math.abs(cellX - charX) + Math.abs(cellY - charY);
+                      if (d < bestDist) { bestDist = d; bestGx = gx; bestGy = gy; }
+                    }
+                  }
+                  if (bestGx >= 0 && bestDist < 80) {
+                    const newType = Math.floor(Math.random() * YARD_FLOWER_TYPES.length);
+                    const newFlowers = [...yardFlowers, { gridX: bestGx, gridY: bestGy, type: newType }];
+                    setYardFlowers(newFlowers);
+                    if (isOnline()) saveYardFlowers(nickname, newFlowers);
+                    else localStorage.setItem(`yard_flowers_${nickname}`, JSON.stringify(newFlowers));
+                    playClick();
+                  }
+                } else if (yardMode === 'visiting') {
+                  // 가장 가까운 꽃 뽑기
+                  let bestDist = Infinity, bestIdx = -1;
+                  yardFlowers.forEach((f, fi) => {
+                    const cellX = (5 + (f.gridX + 0.5) * (90 / YARD_COLS)) * 3;
+                    const cellY = (30 + (f.gridY + 0.5) * (62 / YARD_ROWS)) * 2;
+                    const charX = (yardCharPos.x / 300) * 600;
+                    const charY = (yardCharPos.y / 200) * 400;
+                    const d = Math.abs(cellX - charX) + Math.abs(cellY - charY);
+                    if (d < bestDist) { bestDist = d; bestIdx = fi; }
+                  });
+                  if (bestIdx >= 0 && bestDist < 80) {
+                    const newFlowers = yardFlowers.filter((_, i) => i !== bestIdx);
+                    setYardFlowers(newFlowers);
+                    if (isOnline()) saveYardFlowers(yardOwner, newFlowers);
+                    playClick();
+                  }
+                }
+              }}
+              style={{
+                marginTop: 8, marginLeft: 12, width: 44, height: 44, borderRadius: '50%',
+                background: yardMode === 'own'
+                  ? 'radial-gradient(circle, #ff88aa, #cc4466)'
+                  : 'radial-gradient(circle, #ff6644, #cc3322)',
+                border: yardMode === 'own' ? '2px solid #ffccdd' : '2px solid #ffaa88',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 18, cursor: 'pointer', touchAction: 'none', userSelect: 'none',
+              }}
+            >
+              {yardMode === 'own' ? '🌷' : '🤏'}
+            </button>
+            {/* 돌아가기 버튼 */}
+            <button
+              className="pixel-btn"
+              onClick={() => {
+                playClick();
+                setYardMode(null);
+                setYardOwner('');
+                setYardFlowers([]);
+              }}
+              style={{ marginTop: 18, marginLeft: 12, fontSize: 8, padding: '6px 10px' }}
+            >
+              방으로
+            </button>
+          </div>
+        </>
+      )}
+
       {/* 방 */}
-      <div
+      {!yardMode && <div
         ref={roomRef}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1603,10 +1871,10 @@ export default function MyRoom({ player, nickname, onBack }) {
             상점에서<br/>가구를 구매하세요!
           </div>
         )}
-      </div>
+      </div>}
 
       {/* 모바일 조이스틱 + 꽃 버튼 */}
-      {!editMode && (
+      {!editMode && !yardMode && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginTop: 0 }}>
         <div
           onPointerDown={(e) => {
