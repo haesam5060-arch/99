@@ -809,6 +809,21 @@ export default function MyRoom({ player, nickname, onBack }) {
     return null;
   })();
 
+  // 장착 캐릭터와 문 근처 감지 (놀러가기)
+  const nearDoor = (() => {
+    if (!equippedChar || visitMode === 'visiting') return false;
+    for (let i = 0; i < layout.length; i++) {
+      if (layout[i].id !== 'door') continue;
+      const f = FURNITURE_DEFS[layout[i].id];
+      const doorPx = (layout[i].x / 300) * roomSize.w + (f.w * SCALE) / 2;
+      const doorPy = (layout[i].y / 200) * roomSize.h + (f.h * SCALE) / 2;
+      const dx = equippedChar.x - doorPx;
+      const dy = equippedChar.y - doorPy;
+      if (Math.sqrt(dx * dx + dy * dy) < 50) return true;
+    }
+    return false;
+  })();
+
   const handleRide = () => {
     if (nearbyTruckIdx != null) {
       playClick();
@@ -1031,6 +1046,23 @@ export default function MyRoom({ player, nickname, onBack }) {
                     boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                   }}>
                     내리기
+                  </button>
+                )}
+                {/* 문 근처: 친구집 놀러가기 */}
+                {nearDoor && isOnline() && ridingTruckIdx == null && (
+                  <button onClick={() => { playClick(); setVisitMode('input'); setVisitError(''); }} style={{
+                    position: 'absolute', left: ch.x, top: ch.y - 58,
+                    transform: 'translateX(-50%)',
+                    zIndex: 9999,
+                    background: 'linear-gradient(135deg, #44cc88, #228866)',
+                    color: '#fff', border: '2px solid #fff',
+                    borderRadius: 6, padding: '3px 8px',
+                    fontSize: 7, fontFamily: "'Press Start 2P', monospace",
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    animation: 'zzzFloat 1s ease-in-out infinite',
+                  }}>
+                    친구집 놀러가기!
                   </button>
                 )}
               </>
@@ -1263,19 +1295,8 @@ export default function MyRoom({ player, nickname, onBack }) {
           background: '#141450', border: '2px solid #333366',
           borderRadius: 6, padding: '8px 12px',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 9, color: '#aaa' }}>
-              {visitMode === 'visiting' ? `${visitTarget}의 친구들` : `우리 친구들 (${ownedCharacters.length}마리)`}
-            </span>
-            {visitMode !== 'visiting' && isOnline() && (
-              <button
-                className="pixel-btn"
-                onClick={() => { playClick(); setVisitMode('input'); setVisitError(''); }}
-                style={{ fontSize: 8, padding: '3px 8px', minWidth: 0 }}
-              >
-                놀러가기
-              </button>
-            )}
+          <div style={{ fontSize: 9, color: '#aaa', marginBottom: 6 }}>
+            {visitMode === 'visiting' ? `${visitTarget}의 친구들` : `우리 친구들 (${ownedCharacters.length}마리)`}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {ownedCharacters.map((id) => (
