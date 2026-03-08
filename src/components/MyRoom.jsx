@@ -7,7 +7,7 @@ import { isOnline, saveRoomData, getRoomData } from '../utils/supabase';
 
 const SCALE = 2;
 
-const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000] };
+const ACTION_DURATION = { idle: [2000, 4000], walk: [3000, 6000], sleep: [4000, 7000], sit: [3000, 5000], eat: [3000, 5000], eat_at: [4000, 6000], play: [3000, 5000], watch: [4000, 6000], music: [3000, 5000], ball: [2000, 4000] };
 
 const SPEECH_BUBBLES = [
   '구구단 연습하자~', '오늘도 화이팅!', '심심해~', '놀아줘!',
@@ -15,6 +15,16 @@ const SPEECH_BUBBLES = [
   '7x8은 56!', '여기 좋다~', '간식 먹고싶다', '숙제 다했어?',
   '최고의 하루!', '으쌰으쌰!', '힘내자!', '뭐하고 놀까?',
 ];
+
+// 상호작용별 대사
+const INTERACTION_SPEECH = {
+  eat: ['배고프다~', '간식 꺼내먹어야지~', '뭐 먹을까~', '냉장고 열어보자!'],
+  eat_at: ['냠냠 맛있다!', '꿀맛이다~', '잘 먹겠습니다!', '배부르다~', '맛있는 간식!'],
+  play: ['부릉부릉~', '출발이다!', '장난감 트럭 최고!', '배달 왔어요~', '삐뽀삐뽀!'],
+  watch: ['만화 보자~', 'TV 볼 시간이다!', '재밌는 거 하고있다~', '꺄~ 재밌어!', '이 프로 좋아!'],
+  music: ['도레미파솔~', '라시도~!', '피아노 연습!', '멜로디~', '나 천재 피아니스트!'],
+  ball: ['슛! 골인~!', '패스 패스!', '드리블~', '여기로 차!', '골~~~~!'],
+};
 
 function randRange(min, max) {
   return min + Math.random() * (max - min);
@@ -200,7 +210,13 @@ export default function MyRoom({ player, nickname, onBack }) {
             const dy = (ch.targetY || ch.y) - ch.y;
             if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
               const nextAction = ch.interacting || 'idle';
-              return { ...ch, x: ch.targetX, y: ch.targetY || ch.y, action: nextAction, targetX: null, targetY: null };
+              // 가구 도착 시 상호작용 대사
+              let arrivalSpeech = null;
+              if (ch.interacting && INTERACTION_SPEECH[ch.interacting]) {
+                arrivalSpeech = INTERACTION_SPEECH[ch.interacting][Math.floor(Math.random() * INTERACTION_SPEECH[ch.interacting].length)];
+              }
+              return { ...ch, x: ch.targetX, y: ch.targetY || ch.y, action: nextAction, targetX: null, targetY: null,
+                ...(arrivalSpeech ? { speech: arrivalSpeech, speechTimer: Date.now() + 2500 } : {}) };
             }
             const dist = Math.sqrt(dx * dx + dy * dy);
             const speed = 1.8;
@@ -214,14 +230,43 @@ export default function MyRoom({ player, nickname, onBack }) {
           return ch;
         }
 
-        const roll = Math.random();
-        let newAction;
-        if (roll < 0.35) newAction = 'walk';
-        else if (roll < 0.55 && findInteraction('sleep')) newAction = 'sleep';
-        else if (roll < 0.7 && findInteraction('sit')) newAction = 'sit';
-        else newAction = 'idle';
+        // 연쇄 행동: 냉장고 도착 후 식탁으로 이동
+        if (ch.interacting === 'eat' && ch.action === 'eat') {
+          const tablePos = findInteraction('eat_at');
+          if (tablePos) {
+            const eatSpeech = INTERACTION_SPEECH.eat[Math.floor(Math.random() * INTERACTION_SPEECH.eat.length)];
+            return { ...ch, action: 'walk', targetX: tablePos.x, targetY: tablePos.y, flip: tablePos.x < ch.x, actionTimer: now + 4000, interacting: 'eat_at', speech: eatSpeech, speechTimer: now + 2500 };
+          }
+          // 식탁 없으면 그 자리에서 먹기
+          const eatSpeech = INTERACTION_SPEECH.eat_at[Math.floor(Math.random() * INTERACTION_SPEECH.eat_at.length)];
+          return { ...ch, action: 'idle', interacting: null, actionTimer: now + randRange(3000, 5000), speech: eatSpeech, speechTimer: now + 2500 };
+        }
 
-        const duration = randRange(...ACTION_DURATION[newAction]);
+        const roll = Math.random();
+        // 가능한 행동 목록 구성
+        const actions = ['walk', 'idle'];
+        if (findInteraction('sleep')) actions.push('sleep');
+        if (findInteraction('sit')) actions.push('sit');
+        if (findInteraction('eat')) actions.push('eat');
+        if (findInteraction('play')) actions.push('play');
+        if (findInteraction('watch')) actions.push('watch');
+        if (findInteraction('music')) actions.push('music');
+        if (findInteraction('ball')) actions.push('ball');
+
+        // 가중치: walk 30%, idle 20%, 나머지 균등 분배
+        let newAction;
+        if (roll < 0.25) newAction = 'walk';
+        else if (roll < 0.40) newAction = 'idle';
+        else {
+          const interactActions = actions.filter(a => a !== 'walk' && a !== 'idle');
+          if (interactActions.length > 0) {
+            newAction = interactActions[Math.floor(Math.random() * interactActions.length)];
+          } else {
+            newAction = roll < 0.6 ? 'walk' : 'idle';
+          }
+        }
+
+        const duration = randRange(...(ACTION_DURATION[newAction] || [2000, 4000]));
         const fTop = roomSize.h * 0.35;
         const fBot = roomSize.h * 0.92;
 
@@ -243,6 +288,24 @@ export default function MyRoom({ player, nickname, onBack }) {
             return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sit' };
           }
           return { ...ch, action: 'sit', targetX: null, targetY: null, actionTimer: now + duration, interacting: 'sit' };
+        }
+        // 냉장고 → 식탁 연쇄
+        if (newAction === 'eat') {
+          const pos = findInteraction('eat');
+          const hungrySpeech = '배고프다~';
+          if (pos && Math.abs(ch.x - pos.x) > 40) {
+            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 4000, interacting: 'eat', speech: hungrySpeech, speechTimer: now + 2500 };
+          }
+          return { ...ch, action: 'eat', targetX: null, targetY: null, actionTimer: now + 2000, interacting: 'eat', speech: hungrySpeech, speechTimer: now + 2500 };
+        }
+        // play, watch, music, ball - 가구로 이동 후 상호작용
+        if (['play', 'watch', 'music', 'ball'].includes(newAction)) {
+          const pos = findInteraction(newAction);
+          if (pos && Math.abs(ch.x - pos.x) > 40) {
+            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: newAction };
+          }
+          const actionSpeech = INTERACTION_SPEECH[newAction][Math.floor(Math.random() * INTERACTION_SPEECH[newAction].length)];
+          return { ...ch, action: newAction, targetX: null, targetY: null, actionTimer: now + duration, interacting: newAction, speech: actionSpeech, speechTimer: now + 2500 };
         }
         return { ...ch, action: 'idle', targetX: null, targetY: null, actionTimer: now + duration, interacting: null };
       }).map(ch => {
