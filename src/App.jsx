@@ -1,4 +1,18 @@
 import { useState, useCallback, Component } from 'react';
+import StarBackground from './components/StarBackground';
+import NicknameScreen from './components/NicknameScreen';
+import MainScreen from './components/MainScreen';
+import ModeSelect from './components/ModeSelect';
+import GamePlay from './components/GamePlay';
+import Shop from './components/Shop';
+import Ranking from './components/Ranking';
+import HelpScreen from './components/HelpScreen';
+import CoopLobby from './components/CoopLobby';
+import CoopGame from './components/CoopGame';
+import MyRoom from './components/MyRoom';
+import { getPlayer, updatePlayerScore } from './utils/storage';
+import { isOnline, getOnlinePlayer, updateOnlineScore } from './utils/supabase';
+import { setMuted } from './utils/sound';
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -20,21 +34,6 @@ class ErrorBoundary extends Component {
     return this.props.children;
   }
 }
-
-import StarBackground from './components/StarBackground';
-import NicknameScreen from './components/NicknameScreen';
-import MainScreen from './components/MainScreen';
-import ModeSelect from './components/ModeSelect';
-import GamePlay from './components/GamePlay';
-import Shop from './components/Shop';
-import Ranking from './components/Ranking';
-import HelpScreen from './components/HelpScreen';
-import CoopLobby from './components/CoopLobby';
-import CoopGame from './components/CoopGame';
-import MyRoom from './components/MyRoom';
-import { getPlayer, updatePlayerScore } from './utils/storage';
-import { isOnline, getOnlinePlayer, updateOnlineScore } from './utils/supabase';
-import { setMuted } from './utils/sound';
 
 function App() {
   const [screen, setScreen] = useState('nickname');
