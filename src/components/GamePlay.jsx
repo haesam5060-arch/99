@@ -314,6 +314,7 @@ export default function GamePlay({
         stageScore={stageScore}
         totalSessionScore={totalSessionScore}
         playerScore={player.score}
+        hiddenHint={!isCustomMode && currentDan >= 4 && currentDan <= 8 && totalWrongCount === 0 ? (9 - currentDan) : null}
         onNext={() => {
           if (isLastDan) {
             onStageClear(totalSessionScore, true);
@@ -778,7 +779,7 @@ function EarthCanvas() {
 }
 
 // Stage Clear sub-screen
-function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onNext, onQuit, isLastDan, nextDanLabel }) {
+function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onNext, onQuit, isLastDan, nextDanLabel, hiddenHint }) {
   useEffect(() => {
     if (isLastDan) {
       playGameComplete();
@@ -786,6 +787,14 @@ function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onN
       playStageClear();
     }
   }, []);
+
+  const hiddenHintMessages = {
+    5: '히든 보상이 가까워지고 있어요!',
+    4: '절반 넘었어요! 이 기세 그대로!',
+    3: '거의 다 왔어요! 집중!',
+    2: '대단해요! 조금만 더 힘내세요!',
+    1: '마지막 1단 남았어요! 끝까지 파이팅!',
+  };
 
   return (
     <div className="game-container" style={{ justifyContent: 'center' }}>
@@ -798,6 +807,29 @@ function StageClearScreen({ dan, stageScore, totalSessionScore, playerScore, onN
       }}>
         {isLastDan ? '전체 클리어!' : `${dan}단 클리어!`}
       </div>
+
+      {hiddenHint && (
+        <div style={{
+          background: 'linear-gradient(135deg, #1a1a5e 0%, #2d1b69 100%)',
+          border: '2px solid #ffd700',
+          borderRadius: 8,
+          padding: '14px 18px',
+          textAlign: 'center',
+          marginBottom: 16,
+          width: '100%',
+          animation: 'fadeIn 0.5s ease-out',
+        }}>
+          <div style={{ fontSize: 13, color: '#ffd700', marginBottom: 6 }}>
+            {hiddenHintMessages[hiddenHint]}
+          </div>
+          <div style={{ fontSize: 12, color: '#ffee88' }}>
+            히든 보상까지 <span style={{ fontSize: 16, fontWeight: 'bold', color: '#ffd700' }}>{hiddenHint}단</span> 남았습니다!
+          </div>
+          <div style={{ fontSize: 14, color: '#ff6600', marginTop: 4 }}>
+            보상 10,000P !!
+          </div>
+        </div>
+      )}
 
       <div style={{
         background: '#141450',
