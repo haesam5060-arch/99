@@ -644,23 +644,31 @@ function EarthCanvas() {
       });
     });
 
-    // Draw "지구" text on earth
-    ctx.save();
-    ctx.font = `bold ${pixelSize * 2}px 'Press Start 2P', monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.fillText('지구', canvas.width / 2, canvas.height * 0.55);
-    ctx.restore();
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={480}
-      height={240}
-      style={{ imageRendering: 'pixelated' }}
-    />
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <canvas
+        ref={canvasRef}
+        width={480}
+        height={240}
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -30%)',
+        fontFamily: "'Press Start 2P', monospace",
+        fontSize: 28,
+        color: 'rgba(255, 255, 255, 0.3)',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        letterSpacing: 4,
+      }}>
+        지구
+      </div>
+    </div>
   );
 }
 
