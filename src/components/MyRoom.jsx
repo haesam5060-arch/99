@@ -1524,7 +1524,8 @@ export default function MyRoom({ player, nickname, onBack }) {
       )}
 
       {/* 방 */}
-      {!yardMode && (<div
+      {/* 방 */}
+      <div
         ref={roomRef}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1539,6 +1540,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           overflow: 'hidden',
           border: editMode ? '2px dashed var(--gold)' : '2px solid #333366',
           touchAction: 'none',
+          display: yardMode ? 'none' : 'block',
         }}
       >
         {/* 벽 */}
@@ -1928,7 +1930,7 @@ export default function MyRoom({ player, nickname, onBack }) {
             상점에서<br/>가구를 구매하세요!
           </div>
         )}
-      </div>)}
+      </div>
 
       {/* 모바일 조이스틱 + 꽃 버튼 */}
       {!editMode && !yardMode && (
