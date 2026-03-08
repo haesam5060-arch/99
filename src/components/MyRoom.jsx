@@ -293,15 +293,20 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => { leaveVisitRoom(ch); hostChannelRef.current = null; };
   }, [nickname, equippedId]);
 
-  // ── 방문 시 내 위치 브로드캐스트 ──
+  // ── 내 위치 브로드캐스트 (방문자: guest-move, 호스트: host-chars) ──
   useEffect(() => {
-    if (visitMode !== 'visiting' || !visitChannelRef.current) return;
     const eq = charStates.find(c => Number(c.id) === equippedId);
     if (!eq) return;
-    broadcastVisitPosition(visitChannelRef.current, 'guest-move', {
-      nickname, characterId: equippedId, x: eq.x, y: eq.y, flip: eq.flip,
-    });
-  }, [charStates, visitMode, equippedId, nickname]);
+    const posData = { nickname, characterId: equippedId, x: eq.x, y: eq.y, flip: eq.flip };
+    // 방문 중이면 상대방 채널에 guest-move
+    if (visitMode === 'visiting' && visitChannelRef.current) {
+      broadcastVisitPosition(visitChannelRef.current, 'guest-move', posData);
+    }
+    // 호스트로서 내 채널에 host-chars (방문자에게 내 위치 전달)
+    if (hostChannelRef.current && guests.length > 0) {
+      broadcastVisitPosition(hostChannelRef.current, 'host-chars', posData);
+    }
+  }, [charStates, visitMode, equippedId, nickname, guests.length]);
 
   // 놀러가기 핸들러
   const handleVisit = async () => {
@@ -314,11 +319,25 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (data.room_layout?.length > 0) setLayout(data.room_layout);
     // 방문 채널 접속
     const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
-      onHostUpdate: () => {},
+      onHostUpdate: (payload) => {
+        // 호스트(방 주인) 캐릭터 위치 수신 → guests에 추가/업데이트
+        if (payload.nickname && payload.x != null) {
+          setGuests(prev => {
+            const exists = prev.find(g => g.nickname === payload.nickname);
+            if (exists) {
+              return prev.map(g => g.nickname === payload.nickname
+                ? { ...g, x: payload.x, y: payload.y, flip: payload.flip, characterId: payload.characterId }
+                : g
+              );
+            }
+            return [...prev, { nickname: payload.nickname, characterId: payload.characterId, x: payload.x, y: payload.y, flip: payload.flip }];
+          });
+        }
+      },
       onGuestUpdate: (payload) => {
         if (payload.type === 'presence') {
           setGuests(prev => {
-            const newGuests = [];
+            const newGuests = prev.filter(g => g._isHost); // 호스트는 유지
             payload.visitors.forEach(v => {
               if (v.nickname !== nickname) {
                 const existing = prev.find(g => g.nickname === v.nickname);
