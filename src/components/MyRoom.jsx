@@ -210,6 +210,14 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [flowers, setFlowers] = useState([]); // [{ id, x, y, createdAt }]
   const flowerIdRef = useRef(0);
 
+  // ── 친구 상호작용 시스템 ──
+  const [emojis, setEmojis] = useState([]); // [{id, x, y, emoji, createdAt}]
+  const emojiIdRef = useRef(0);
+  const [highFives, setHighFives] = useState([]); // [{id, x, y, createdAt}]
+  const highFiveCooldownRef = useRef(false);
+  const tagCooldownRef = useRef(false);
+  const [tagEffects, setTagEffects] = useState([]); // [{id, x, y, createdAt}]
+
   // ── 구구단 퀴즈 (자동차 타기 / 문 이동 전) ──
   const [quiz, setQuiz] = useState(null); // { a, b, answer, choices, onCorrect }
   const [quizWrong, setQuizWrong] = useState(null); // 틀린 선택지 인덱스
@@ -387,6 +395,62 @@ export default function MyRoom({ player, nickname, onBack }) {
     }
   }, []);
 
+  // ── 이모지 리액션 ──
+  const EMOJI_LIST = ['👋', '❤️', '😂', '⭐', '🔥', '👍'];
+  const sendEmoji = useCallback((emoji, fromBroadcast = false) => {
+    const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
+    if (!eq && !fromBroadcast) return;
+    const id = emojiIdRef.current++;
+    const x = fromBroadcast ? emoji.x : eq.x;
+    const y = fromBroadcast ? emoji.y : eq.y;
+    const em = fromBroadcast ? emoji.emoji : emoji;
+    setEmojis(prev => [...prev, { id, x, y, emoji: em, createdAt: Date.now() }]);
+    setTimeout(() => setEmojis(prev => prev.filter(e => e.id !== id)), 2000);
+    if (!fromBroadcast) {
+      const data = { type: 'emoji', emoji: em, x, y };
+      if (visitChannelRef.current) broadcastVisitPosition(visitChannelRef.current, 'guest-move', data);
+      if (hostChannelRef.current) broadcastVisitPosition(hostChannelRef.current, 'host-chars', data);
+    }
+  }, [equippedId]);
+
+  // ── 하이파이브 & 꼬리잡기 감지 (게스트 근접) ──
+  const checkGuestInteractions = useCallback(() => {
+    const eq = charStatesRef.current.find(c => Number(c.id) === equippedId);
+    if (!eq || guests.length === 0) return;
+    guests.forEach(g => {
+      const dx = eq.x - g.x, dy = eq.y - g.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // 하이파이브: 30px 이내 + 쿨다운 3초
+      if (dist < 30 && !highFiveCooldownRef.current) {
+        highFiveCooldownRef.current = true;
+        const id = Date.now();
+        const mx = (eq.x + g.x) / 2, my = (eq.y + g.y) / 2;
+        setHighFives(prev => [...prev, { id, x: mx, y: my, createdAt: Date.now() }]);
+        setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
+        setTimeout(() => { highFiveCooldownRef.current = false; }, 3000);
+        // 브로드캐스트
+        const data = { type: 'highfive', x: mx, y: my };
+        if (visitChannelRef.current) broadcastVisitPosition(visitChannelRef.current, 'guest-move', data);
+        if (hostChannelRef.current) broadcastVisitPosition(hostChannelRef.current, 'host-chars', data);
+      }
+      // 꼬리잡기: 25px 이내 + 이동 중 + 쿨다운 5초
+      const isMoving = keysRef.current.ArrowUp || keysRef.current.ArrowDown || keysRef.current.ArrowLeft || keysRef.current.ArrowRight || joystickRef.current.active;
+      if (dist < 25 && isMoving && !tagCooldownRef.current) {
+        tagCooldownRef.current = true;
+        const id = Date.now();
+        setTagEffects(prev => [...prev, { id, x: g.x, y: g.y, createdAt: Date.now() }]);
+        setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
+        setTimeout(() => { tagCooldownRef.current = false; }, 5000);
+        // +10점
+        if (isOnline()) { updateOnlineScore(nickname, 10); } else { updatePlayerScore(nickname, 10); }
+        // 브로드캐스트
+        const data = { type: 'tag', x: g.x, y: g.y };
+        if (visitChannelRef.current) broadcastVisitPosition(visitChannelRef.current, 'guest-move', data);
+        if (hostChannelRef.current) broadcastVisitPosition(hostChannelRef.current, 'host-chars', data);
+      }
+    });
+  }, [equippedId, guests, nickname]);
+
   useEffect(() => {
     const onDown = (e) => {
       if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
@@ -417,8 +481,33 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (!isOnline()) return;
     const ch = hostVisitRoom(nickname, equippedId, {
       onGuestUpdate: (payload) => {
-        // 꽃 수신
+        // 상호작용 수신
         if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+        if (payload.type === 'highfive') {
+          const id = Date.now() + Math.random();
+          setHighFives(prev => [...prev, { id, x: payload.x, y: payload.y, createdAt: Date.now() }]);
+          setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
+          return;
+        }
+        if (payload.type === 'tag') {
+          const id = Date.now() + Math.random();
+          setTagEffects(prev => [...prev, { id, x: payload.x, y: payload.y, createdAt: Date.now() }]);
+          setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
+          return;
+        }
+        if (payload.type === 'ball') {
+          // 축구공 동기화 수신
+          Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
+            if (ballPhysicsRef.current[idx]) {
+              ballPhysicsRef.current[idx].x = bp.x;
+              ballPhysicsRef.current[idx].y = bp.y;
+              ballPhysicsRef.current[idx].vx = bp.vx;
+              ballPhysicsRef.current[idx].vy = bp.vy;
+            }
+          });
+          return;
+        }
         if (payload.type === 'presence') {
           setGuests(prev => {
             const existing = new Set(prev.map(g => g.nickname));
@@ -513,6 +602,30 @@ export default function MyRoom({ player, nickname, onBack }) {
     const ch = joinVisitRoom(visitTarget.trim(), nickname, equippedId, {
       onHostUpdate: (payload) => {
         if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+        if (payload.type === 'highfive') {
+          const id = Date.now() + Math.random();
+          setHighFives(prev => [...prev, { id, x: payload.x, y: payload.y, createdAt: Date.now() }]);
+          setTimeout(() => setHighFives(prev => prev.filter(h => h.id !== id)), 1500);
+          return;
+        }
+        if (payload.type === 'tag') {
+          const id = Date.now() + Math.random();
+          setTagEffects(prev => [...prev, { id, x: payload.x, y: payload.y, createdAt: Date.now() }]);
+          setTimeout(() => setTagEffects(prev => prev.filter(t => t.id !== id)), 1500);
+          return;
+        }
+        if (payload.type === 'ball') {
+          Object.entries(payload.balls || {}).forEach(([idx, bp]) => {
+            if (ballPhysicsRef.current[idx]) {
+              ballPhysicsRef.current[idx].x = bp.x;
+              ballPhysicsRef.current[idx].y = bp.y;
+              ballPhysicsRef.current[idx].vx = bp.vx;
+              ballPhysicsRef.current[idx].vy = bp.vy;
+            }
+          });
+          return;
+        }
         // 호스트(방 주인) 캐릭터 위치 수신 → guests에 추가/업데이트
         if (payload.nickname && payload.x != null) {
           setGuests(prev => {
@@ -529,6 +642,9 @@ export default function MyRoom({ player, nickname, onBack }) {
       },
       onGuestUpdate: (payload) => {
         if (payload.type === 'flower') { plantFlower(payload.x, payload.y, true); return; }
+        if (payload.type === 'emoji') { sendEmoji(payload, true); return; }
+        if (payload.type === 'highfive' || payload.type === 'tag') return; // 이미 호스트에서 수신
+        if (payload.type === 'ball') return;
         if (payload.type === 'presence') {
           setGuests(prev => {
             const newGuests = prev.filter(g => g._isHost); // 호스트는 유지
@@ -986,14 +1102,28 @@ export default function MyRoom({ player, nickname, onBack }) {
           newPositions[idx] = { x: bp.x, y: bp.y };
         });
         setBallPositions({ ...newPositions });
+        // 축구공 동기화 브로드캐스트 (킥 시에만)
+        const ballData = { type: 'ball', balls: {} };
+        Object.entries(ballPhysicsRef.current).forEach(([idx, bp]) => {
+          if (Math.abs(bp.vx) > 0.5 || Math.abs(bp.vy) > 0.5) {
+            ballData.balls[idx] = { x: bp.x, y: bp.y, vx: bp.vx, vy: bp.vy };
+          }
+        });
+        if (Object.keys(ballData.balls).length > 0) {
+          if (visitChannelRef.current) broadcastVisitPosition(visitChannelRef.current, 'guest-move', ballData);
+          if (hostChannelRef.current) broadcastVisitPosition(hostChannelRef.current, 'host-chars', ballData);
+        }
       }
+
+      // 하이파이브 & 꼬리잡기 감지 (매 프레임)
+      checkGuestInteractions();
 
       animFrameRef.current = requestAnimationFrame(tick);
     };
 
     animFrameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [editMode, findInteraction, roomSize, layout]);
+  }, [editMode, findInteraction, roomSize, layout, checkGuestInteractions]);
 
   const handleRemoveFurniture = (idx) => {
     playClick();
@@ -1107,6 +1237,16 @@ export default function MyRoom({ player, nickname, onBack }) {
         @keyframes zzzFloat {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-8px); }
+        }
+        @keyframes highFivePop {
+          0% { transform: translateX(-50%) scale(0.3); }
+          50% { transform: translateX(-50%) scale(1.4); }
+          100% { transform: translateX(-50%) scale(1); }
+        }
+        @keyframes tagBurst {
+          0% { transform: translateX(-50%) scale(0.3) rotate(-10deg); }
+          50% { transform: translateX(-50%) scale(1.3) rotate(5deg); }
+          100% { transform: translateX(-50%) scale(1) rotate(0deg); }
         }
         @keyframes speechBubble {
           0% { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(4px); }
@@ -1486,6 +1626,82 @@ export default function MyRoom({ player, nickname, onBack }) {
             </div>
           </div>
         ))}
+
+        {/* 이모지 리액션 */}
+        {emojis.map(e => {
+          const age = (Date.now() - e.createdAt) / 2000;
+          return (
+            <div key={`emoji-${e.id}`} style={{
+              position: 'absolute', left: e.x, top: e.y - 50 - age * 30,
+              transform: 'translateX(-50%)',
+              fontSize: 20, zIndex: 9999, pointerEvents: 'none',
+              opacity: Math.max(0, 1 - age),
+              transition: 'opacity 0.3s',
+            }}>
+              {e.emoji}
+            </div>
+          );
+        })}
+
+        {/* 하이파이브 이펙트 */}
+        {highFives.map(h => {
+          const age = (Date.now() - h.createdAt) / 1500;
+          return (
+            <div key={`hf-${h.id}`} style={{
+              position: 'absolute', left: h.x, top: h.y - 30,
+              transform: 'translateX(-50%)',
+              zIndex: 9999, pointerEvents: 'none',
+              opacity: Math.max(0, 1 - age),
+              animation: 'highFivePop 0.5s ease-out',
+            }}>
+              <div style={{ fontSize: 24, textAlign: 'center' }}>🙏</div>
+              <div style={{
+                fontSize: 7, color: '#ffdd00', textAlign: 'center',
+                fontFamily: "'Press Start 2P', monospace",
+                textShadow: '1px 1px 0 #000',
+              }}>하이파이브!</div>
+            </div>
+          );
+        })}
+
+        {/* 꼬리잡기 이펙트 */}
+        {tagEffects.map(t => {
+          const age = (Date.now() - t.createdAt) / 1500;
+          return (
+            <div key={`tag-${t.id}`} style={{
+              position: 'absolute', left: t.x, top: t.y - 40,
+              transform: 'translateX(-50%)',
+              zIndex: 9999, pointerEvents: 'none',
+              opacity: Math.max(0, 1 - age),
+              animation: 'tagBurst 0.5s ease-out',
+            }}>
+              <div style={{ fontSize: 18, textAlign: 'center' }}>💥</div>
+              <div style={{
+                fontSize: 7, color: '#ff4444', textAlign: 'center',
+                fontFamily: "'Press Start 2P', monospace",
+                textShadow: '1px 1px 0 #000',
+              }}>터치! +10P</div>
+            </div>
+          );
+        })}
+
+        {/* 이모지 버튼 (게스트 있을 때만) */}
+        {guests.length > 0 && !editMode && !quiz && !duel && (
+          <div style={{
+            position: 'absolute', bottom: 4, right: 4,
+            display: 'flex', gap: 2, background: 'rgba(0,0,0,0.5)',
+            padding: '3px 4px', borderRadius: 8, zIndex: 9999,
+          }}>
+            {EMOJI_LIST.map((em, i) => (
+              <button key={i} onClick={() => sendEmoji(em)} style={{
+                fontSize: 14, background: 'transparent', border: 'none',
+                cursor: 'pointer', padding: '2px 3px', borderRadius: 4,
+              }}>
+                {em}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* 외출 중 캐릭터 말풍선 (문 위에 표시) */}
         {!editMode && charStates.filter(ch => ch.hidden && ch.speech).map((ch) => {
