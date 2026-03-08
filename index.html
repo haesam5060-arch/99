@@ -8,19 +8,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <div id="error-display" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#220000;color:#ff4444;padding:16px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:50vh;overflow:auto;border-bottom:2px solid #ff0000;"></div>
-    <script>
-      window.onerror = function(msg, src, line, col, err) {
-        var el = document.getElementById('error-display');
-        el.style.display = 'block';
-        el.textContent += 'ERROR: ' + msg + '\n' + (src||'') + ':' + line + ':' + col + '\n' + (err&&err.stack||'') + '\n\n';
-      };
-      window.addEventListener('unhandledrejection', function(e) {
-        var el = document.getElementById('error-display');
-        el.style.display = 'block';
-        el.textContent += 'PROMISE ERROR: ' + (e.reason&&e.reason.message||e.reason) + '\n' + (e.reason&&e.reason.stack||'') + '\n\n';
-      });
-    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

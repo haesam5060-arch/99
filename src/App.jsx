@@ -1,25 +1,4 @@
-import { useState, useCallback, Component } from 'react';
-
-class ErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { error: null }; }
-  static getDerivedStateFromError(error) { return { error }; }
-  render() {
-    if (this.state.error) {
-      return (
-        <div style={{ color: '#ff4444', padding: 20, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>
-          <div style={{ fontSize: 16, marginBottom: 10 }}>에러 발생!</div>
-          <div>{this.state.error.message}</div>
-          <div style={{ fontSize: 10, marginTop: 10, color: '#999' }}>{this.state.error.stack}</div>
-          <button onClick={() => { this.setState({ error: null }); if (this.props.onReset) this.props.onReset(); }}
-            style={{ marginTop: 10, padding: '8px 16px', background: '#333', color: '#fff', border: '1px solid #666', borderRadius: 4, cursor: 'pointer' }}>
-            돌아가기
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+import { useState, useCallback } from 'react';
 import StarBackground from './components/StarBackground';
 import NicknameScreen from './components/NicknameScreen';
 import MainScreen from './components/MainScreen';
@@ -181,14 +160,12 @@ function App() {
         <HelpScreen onBack={() => setScreen('main')} />
       )}
       {screen === 'myroom' && player && (
-        <ErrorBoundary onReset={() => setScreen('main')}>
-          <MyRoom
-            player={player}
-            nickname={nickname}
-            onBack={async () => { await refreshPlayer(); setScreen('main'); }}
-            onUpdate={handleShopUpdate}
-          />
-        </ErrorBoundary>
+        <MyRoom
+          player={player}
+          nickname={nickname}
+          onBack={async () => { await refreshPlayer(); setScreen('main'); }}
+          onUpdate={handleShopUpdate}
+        />
       )}
 
       <div style={{

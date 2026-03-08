@@ -915,79 +915,31 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
           {FURNITURE_IDS.map(fId => {
             const f = FURNITURE_DEFS[fId];
             const ownedCount = ownedFurniture.filter(id => id === fId).length;
-            const tooltip = FURNITURE_TOOLTIPS[fId];
             return (
-              <div key={fId} style={{ position: 'relative' }}>
-                <button
-                  onClick={() => handleBuyFurniture(fId)}
-                  style={{
-                    background: '#141450',
-                    border: ownedCount > 0 ? '2px solid #336633' : '2px solid #333366',
-                    borderRadius: 6, padding: 10, cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    width: '100%',
-                  }}
-                >
-                  <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
-                    <FurnitureCanvas furnitureId={fId} scale={2} />
-                  </div>
-                  <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
-                    {f.name} {ownedCount > 0 ? `x${ownedCount}` : ''}
-                  </div>
-                  <div style={{
-                    fontSize: 9,
-                    color: 'var(--gold)',
-                    fontFamily: "'Press Start 2P', monospace",
-                  }}>
-                    {FURNITURE_PRICE.toLocaleString()} P
-                  </div>
-                </button>
-                {tooltip && (
-                  <>
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFurnitureTooltip(furnitureTooltip === fId ? null : fId);
-                      }}
-                      style={{
-                        position: 'absolute', top: 4, right: 4,
-                        width: 18, height: 18, borderRadius: '50%',
-                        background: 'linear-gradient(135deg, #ff8800, #ff6600)',
-                        color: '#fff', fontSize: 11,
-                        fontFamily: "'Press Start 2P', monospace",
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', zIndex: 2,
-                        boxShadow: '0 0 6px rgba(255,136,0,0.6)',
-                        animation: furnitureTooltip === fId ? 'none' : 'tipPulse 2s ease-in-out infinite',
-                        border: '1.5px solid #fff',
-                        lineHeight: 1,
-                      }}
-                    >
-                      !
-                    </div>
-                    {furnitureTooltip === fId && (
-                      <div
-                        onClick={(e) => { e.stopPropagation(); setFurnitureTooltip(null); }}
-                        style={{
-                          position: 'absolute', top: 26, right: 0,
-                          background: 'linear-gradient(135deg, #1a1a5e, #0d0d3a)',
-                          border: '2px solid #ff8800',
-                          borderRadius: 8, padding: '8px 12px',
-                          fontSize: 8, color: '#ffe0aa',
-                          fontFamily: "'Press Start 2P', monospace",
-                          zIndex: 10, whiteSpace: 'pre-line',
-                          lineHeight: 1.8,
-                          minWidth: 140, maxWidth: 200,
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-                          textAlign: 'left',
-                        }}
-                      >
-                        {tooltip}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+              <button
+                key={fId}
+                onClick={() => handleBuyFurniture(fId)}
+                style={{
+                  background: '#141450',
+                  border: ownedCount > 0 ? '2px solid #336633' : '2px solid #333366',
+                  borderRadius: 6, padding: 10, cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                }}
+              >
+                <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
+                  <FurnitureCanvas furnitureId={fId} scale={2} />
+                </div>
+                <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
+                  {f.name} {ownedCount > 0 ? `x${ownedCount}` : ''}
+                </div>
+                <div style={{
+                  fontSize: 9,
+                  color: 'var(--gold)',
+                  fontFamily: "'Press Start 2P', monospace",
+                }}>
+                  {FURNITURE_PRICE.toLocaleString()} P
+                </div>
+              </button>
             );
           })}
         </div>
