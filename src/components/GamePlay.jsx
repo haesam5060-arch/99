@@ -601,6 +601,22 @@ export default function GamePlay({
           </div>
         )}
 
+        {/* Skill name popup */}
+        {skillName && (
+          <div
+            key={Date.now()}
+            className="skill-name-popup"
+            style={{
+              top: '55%',
+              left: '50%',
+              color: skillName.color,
+              textShadow: `2px 2px 0 #000, -1px -1px 0 #000, 0 0 10px ${skillName.color}`,
+            }}
+          >
+            {skillName.text}
+          </div>
+        )}
+
         {/* Earth + Character at bottom */}
         <div style={{
           position: 'absolute',

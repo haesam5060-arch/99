@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { generateChoices } from '../utils/questions';
 import { calculateScore, WRONG_PENALTY } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
-import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
+import { PLANET_SPRITES, EARTH_SPRITE, getRandomSkill, CHARACTER_PALETTES } from '../data/characters';
 import { broadcastGame, leaveRoom } from '../utils/realtime';
 import PixelCharacter from './PixelCharacter';
 
@@ -35,6 +35,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   });
   const [totalSessionScore, setTotalSessionScore] = useState(0);
   const [error, setError] = useState(null);
+  const [skillName, setSkillName] = useState(null);
 
   const animRef = useRef(null);
   const subStartTimeRef = useRef(null);
@@ -317,7 +318,16 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     if (correct) {
       playCorrect();
       setFlashColor('rgba(0, 255, 0, 0.15)');
-      setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score });
+      setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score, answerNick });
+
+      // 기술명 표시 (정답자의 캐릭터 기반)
+      setContributions((prev) => {
+        const charId = prev[answerNick]?.equippedCharacter || 0;
+        const palette = CHARACTER_PALETTES[charId];
+        const skillColor = palette?.colors?.[1] || '#ffd700';
+        setSkillName({ text: getRandomSkill(charId), color: skillColor });
+        return prev;
+      });
 
       // Track who solved it (contribution count only)
       setContributions((prev) => ({
@@ -342,6 +352,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         setFlashColor(null);
         setParticles([]);
         setSelectedChoice(-1);
+        setSkillName(null);
         advanceQuestion();
       }, 800);
     } else {
@@ -662,20 +673,51 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           </div>
         )}
 
+        {/* Skill name popup */}
+        {skillName && (
+          <div
+            key={Date.now()}
+            className="skill-name-popup"
+            style={{
+              top: '55%',
+              left: '50%',
+              color: skillName.color,
+              textShadow: `2px 2px 0 #000, -1px -1px 0 #000, 0 0 10px ${skillName.color}`,
+            }}
+          >
+            {skillName.text}
+          </div>
+        )}
+
         <div style={{
           position: 'absolute', bottom: -120, left: '50%',
           transform: 'translateX(-50%)',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
         }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            {Object.entries(contributions).map(([name, data]) => (
-              <div key={name} style={{ textAlign: 'center' }}>
-                <PixelCharacter characterId={data.equippedCharacter || 0} pixelSize={3} />
-                <div style={{ fontSize: 6, color: name === nickname ? '#ffd700' : '#aaa', marginTop: 2 }}>
-                  {name}
+            {Object.entries(contributions).map(([name, data]) => {
+              const isAttacking = feedback?.type === 'correct' && feedback?.answerNick === name;
+              return (
+                <div key={name} style={{ textAlign: 'center' }}>
+                  <div style={{
+                    transition: 'transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.3)',
+                    transform: isAttacking ? 'scale(2) translateY(-12px)' : 'scale(1)',
+                    transformOrigin: 'center bottom',
+                    zIndex: isAttacking ? 100 : 1,
+                    position: 'relative',
+                  }}>
+                    <PixelCharacter
+                      characterId={data.equippedCharacter || 0}
+                      frame={isAttacking ? 'attack' : 'idle'}
+                      pixelSize={3}
+                    />
+                  </div>
+                  <div style={{ fontSize: 6, color: name === nickname ? '#ffd700' : '#aaa', marginTop: 2 }}>
+                    {name}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <EarthCanvas />
         </div>
