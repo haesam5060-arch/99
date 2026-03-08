@@ -323,7 +323,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                 ...(arrivalSpeech ? { speech: arrivalSpeech, speechTimer: Date.now() + 2500 } : {}) };
             }
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const speed = 1.8;
+            const speed = 0.9;
             return {
               ...ch,
               x: ch.x + (dx / dist) * speed,
