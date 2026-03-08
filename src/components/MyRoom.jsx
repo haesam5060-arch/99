@@ -1130,11 +1130,14 @@ export default function MyRoom({ player, nickname, onBack }) {
                 <div style={{
                   position: 'absolute', left: ch.x, top: ch.y - 42,
                   transform: 'translateX(-50%)',
-                  fontSize: 10, color: '#ffcc00',
+                  fontSize: visitMode === 'visiting' ? 7 : 10,
+                  color: '#ffcc00',
+                  fontFamily: visitMode === 'visiting' ? "'Press Start 2P', monospace" : 'inherit',
                   animation: 'zzzFloat 1.5s ease-in-out infinite',
                   zIndex: 9998, pointerEvents: 'none',
                   textShadow: '0 0 4px rgba(255,200,0,0.8)',
-                }}>▼</div>
+                  whiteSpace: 'nowrap',
+                }}>{visitMode === 'visiting' ? nickname : '▼'}</div>
                 {/* 타기 버튼 */}
                 {nearbyTruckIdx != null && ridingTruckIdx == null && (
                   <button onClick={handleRide} style={{
