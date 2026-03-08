@@ -245,12 +245,14 @@ export default function MyRoom({ player, nickname, onBack }) {
   }, []);
 
   useEffect(() => {
+    // 방문 중에는 내 방 데이터를 덮어쓰지 않음
+    if (visitMode === 'visiting') return;
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
     if (isOnline()) {
       const furniture = JSON.parse(localStorage.getItem(`room_furniture_${nickname}`) || '[]');
       saveRoomData(nickname, layout, furniture);
     }
-  }, [layout, nickname]);
+  }, [layout, nickname, visitMode]);
 
   // 키보드 입력 + 스페이스바 꽃 심기
   const plantFlower = useCallback((x, y, fromBroadcast = false) => {
