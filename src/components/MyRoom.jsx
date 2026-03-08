@@ -212,6 +212,7 @@ export default function MyRoom({ player, nickname, onBack }) {
   const [guests, setGuests] = useState([]); // 내 방에 놀러온 게스트 [{nickname, characterId, x, y, flip}]
   const visitChannelRef = useRef(null);
   const hostChannelRef = useRef(null);
+  const visitModeRef = useRef(null);
 
   // 온라인이면 Supabase에서 가구/레이아웃 로드
   useEffect(() => {
@@ -244,15 +245,18 @@ export default function MyRoom({ player, nickname, onBack }) {
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
+  // visitModeRef를 항상 최신 상태로 동기화
+  useEffect(() => { visitModeRef.current = visitMode; }, [visitMode]);
+
   useEffect(() => {
-    // 방문 중에는 내 방 데이터를 덮어쓰지 않음
-    if (visitMode === 'visiting') return;
+    // 방문 중이거나 입력 모달 중에는 내 방 데이터를 덮어쓰지 않음
+    if (visitModeRef.current) return;
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
     if (isOnline()) {
       const furniture = JSON.parse(localStorage.getItem(`room_furniture_${nickname}`) || '[]');
       saveRoomData(nickname, layout, furniture);
     }
-  }, [layout, nickname, visitMode]);
+  }, [layout, nickname]);
 
   // 키보드 입력 + 스페이스바 꽃 심기
   const plantFlower = useCallback((x, y, fromBroadcast = false) => {
@@ -341,6 +345,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       playClick();
       leaveVisitRoom(visitChannelRef.current);
       visitChannelRef.current = null;
+      visitModeRef.current = null;
       setVisitMode(null);
       setVisitTarget('');
       setGuests([]);
@@ -353,6 +358,8 @@ export default function MyRoom({ player, nickname, onBack }) {
     setVisitError('');
     const data = await getRoomData(visitTarget.trim());
     if (!data) { setVisitError('존재하지 않는 닉네임이에요'); return; }
+    // 방문 모드 ref를 먼저 설정하여 레이아웃 저장 방지
+    visitModeRef.current = 'visiting';
     // 상대방 방 레이아웃 로드
     if (data.room_layout?.length > 0) setLayout(data.room_layout);
     // 방문 채널 접속
@@ -402,6 +409,8 @@ export default function MyRoom({ player, nickname, onBack }) {
     playClick();
     leaveVisitRoom(visitChannelRef.current);
     visitChannelRef.current = null;
+    // ref를 먼저 null로 설정하여 layout 복원 시 저장 방지
+    visitModeRef.current = null;
     setVisitMode(null);
     setVisitTarget('');
     setGuests([]);
@@ -1417,6 +1426,7 @@ export default function MyRoom({ player, nickname, onBack }) {
           zIndex: 10000,
         }} onClick={() => {
           // 취소 시: 이미 방문 채널을 끊었으므로 내 방으로 복귀
+          visitModeRef.current = null;
           setVisitMode(null);
           setVisitTarget('');
           setGuests([]);
@@ -1453,6 +1463,7 @@ export default function MyRoom({ player, nickname, onBack }) {
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
               <button className="pixel-btn" onClick={() => {
+                visitModeRef.current = null;
                 setVisitMode(null);
                 setVisitTarget('');
                 setGuests([]);
