@@ -137,18 +137,21 @@ export default function GamePlay({
       // Correct
       const score = calculateScore(elapsed);
       playCorrect();
-      setCharFrame('attack');
-
-      // Launch missile first, then explode
-      setMissile({ progress: 0 });
+      // 2-phase animation: windup (shrink) → attack (burst)
+      setCharFrame('windup');
       setTimeout(() => {
-        playExplosion();
-        setMissile(null);
-        setFlashColor('#ffffff');
-        setTimeout(() => setFlashColor(null), 300);
-        setParticles(generateParticles());
-      }, 350);
-      setTimeout(() => setCharFrame('idle'), 700);
+        setCharFrame('attack');
+        // Launch missile on attack burst
+        setMissile({ progress: 0 });
+        setTimeout(() => {
+          playExplosion();
+          setMissile(null);
+          setFlashColor('#ffffff');
+          setTimeout(() => setFlashColor(null), 300);
+          setParticles(generateParticles());
+        }, 350);
+      }, 120);
+      setTimeout(() => setCharFrame('idle'), 820);
 
       setStageScore((s) => s + score);
       setTotalSessionScore((s) => s + score);
@@ -602,9 +605,15 @@ export default function GamePlay({
         }}>
           <div style={{
             transition: charFrame === 'attack'
-              ? 'transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1.2)'
-              : 'transform 0.15s ease-out',
-            transform: charFrame === 'attack' ? 'scale(5.2) translateY(-30px)' : 'scale(1)',
+              ? 'transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.3)'
+              : charFrame === 'windup'
+              ? 'transform 0.1s ease-in'
+              : 'transform 0.2s ease-out',
+            transform: charFrame === 'attack'
+              ? 'scale(3.5) translateY(-25px)'
+              : charFrame === 'windup'
+              ? 'scale(0.7) translateY(5px)'
+              : 'scale(1)',
             transformOrigin: 'center bottom',
             zIndex: charFrame === 'attack' ? 100 : 1,
           }}>
