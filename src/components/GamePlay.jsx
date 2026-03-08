@@ -656,15 +656,16 @@ function EarthCanvas() {
       />
       <div style={{
         position: 'absolute',
-        top: '50%',
+        top: '18%',
         left: '50%',
-        transform: 'translate(-50%, -30%)',
+        transform: 'translateX(-50%)',
         fontFamily: "'Press Start 2P', monospace",
         fontSize: 28,
-        color: 'rgba(255, 255, 255, 0.3)',
+        color: 'rgba(255, 255, 255, 0.45)',
         pointerEvents: 'none',
         userSelect: 'none',
-        letterSpacing: 4,
+        letterSpacing: 6,
+        textShadow: '0 0 8px rgba(100, 200, 255, 0.3)',
       }}>
         지구
       </div>
