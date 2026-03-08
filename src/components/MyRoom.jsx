@@ -274,7 +274,8 @@ export default function MyRoom({ player, nickname, onBack }) {
           vy = ballPhysicsRef.current[i].y;
         }
         const px = (vx / 300) * roomSize.w + (f.w * SCALE) / 2;
-        const py = (vy / 200) * roomSize.h;
+        // 문은 하단 중앙(문 앞)으로, 나머지는 가구 중앙 높이로
+        const py = (vy / 200) * roomSize.h + (f.h * SCALE) / 2;
         matches.push({ x: px, y: py });
       }
     }
