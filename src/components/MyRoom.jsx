@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
 import { renderSprite } from '../utils/pixelRenderer';
-import { playClick } from '../utils/sound';
+import { playClick, playGoal } from '../utils/sound';
 import { FURNITURE_DEFS, FURNITURE_TOOLTIPS } from './Shop';
 import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore } from '../utils/supabase';
 import { updatePlayerScore } from '../utils/storage';
@@ -1217,6 +1217,7 @@ export default function MyRoom({ player, nickname, onBack }) {
               const gBottom = gFp.top + gf.h * SCALE;
               if (bFp.cx > gFp.left + 4 && bFp.cx < gRight - 4 && bFp.cy > gFp.top && bFp.cy < gBottom) {
                 goalCooldownRef.current = true;
+                playGoal();
                 const theme = GOAL_THEMES[curGoalIdx % GOAL_THEMES.length];
                 // 골 위치 (% 기준)
                 const goalScreenX = (gFp.cx / rsw) * 100;
