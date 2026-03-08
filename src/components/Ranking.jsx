@@ -8,7 +8,7 @@ import { CHARACTER_PALETTES } from '../data/characters';
 
 const SCHOOL_CARD_ID = 13;
 
-export default function Ranking({ nickname, onBack }) {
+export default function Ranking({ nickname, onBack, onBrowseRooms }) {
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
@@ -138,12 +138,23 @@ export default function Ranking({ nickname, onBack }) {
         )}
       </div>
 
-      <button
-        className="pixel-btn red"
-        onClick={() => { playClick(); onBack(); }}
-      >
-        돌아가기
-      </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 300 }}>
+        {onBrowseRooms && (
+          <button
+            className="pixel-btn"
+            onClick={() => { playClick(); onBrowseRooms(); }}
+            style={{ background: '#2a1a5e', borderColor: '#9966ff #6633cc #6633cc #9966ff' }}
+          >
+            방 구경하기
+          </button>
+        )}
+        <button
+          className="pixel-btn red"
+          onClick={() => { playClick(); onBack(); }}
+        >
+          돌아가기
+        </button>
+      </div>
 
       {/* Character collection popup */}
       {selectedPlayer && (
