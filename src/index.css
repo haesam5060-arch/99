@@ -367,9 +367,12 @@ body {
   100% { opacity: 0; transform: translateY(-50px) scale(0); }
 }
 
-/* Character tooltip in shop */
+/* Character/Furniture tooltip in shop */
 .char-tooltip-wrapper {
   position: relative;
+}
+.char-tooltip-wrapper:hover {
+  z-index: 9999;
 }
 .char-tooltip {
   display: none;
@@ -379,11 +382,12 @@ body {
   transform: translateX(-50%);
   background: #0a0a2e;
   border: 2px solid #6666aa;
+  border-radius: 6px;
   padding: 8px 10px;
   font-size: 8px;
   color: #ccc;
   white-space: nowrap;
-  z-index: 50;
+  z-index: 9999;
   line-height: 1.8;
   text-align: center;
   pointer-events: none;
