@@ -153,7 +153,7 @@ export default function CoopLobby({ nickname, player, onStart, onBack }) {
           협동 지키기
         </div>
         <div style={{ fontSize: 10, color: '#aaa', marginBottom: 30, textAlign: 'center', lineHeight: 2 }}>
-          최대 4명이 함께 지구를 지켜요!<br />
+          함께 지구를 지켜요!<br />
           점수 2배, 벌점도 2배!
         </div>
 
@@ -260,7 +260,7 @@ export default function CoopLobby({ nickname, player, onStart, onBack }) {
                 }}
               >
                 <span>{room.hostNickname}의 방</span>
-                <span style={{ color: '#aaa' }}>코드: {room.roomCode} ({room.playerCount}/4)</span>
+                <span style={{ color: '#aaa' }}>코드: {room.roomCode} ({room.playerCount}명)</span>
               </button>
             ))}
           </div>
@@ -312,7 +312,7 @@ export default function CoopLobby({ nickname, player, onStart, onBack }) {
         marginBottom: 20,
       }}>
         <div style={{ fontSize: 10, color: '#aaa', marginBottom: 12 }}>
-          참여자 ({players.length}/4)
+          참여자 ({players.length}명)
         </div>
         {players.length === 0 ? (
           <div style={{ fontSize: 10, color: '#555', textAlign: 'center', padding: 16 }}>

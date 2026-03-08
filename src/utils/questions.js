@@ -46,5 +46,9 @@ export function generateChoices(dan, correctAnswer) {
     const j = Math.floor(Math.random() * (i + 1));
     [choices[i], choices[j]] = [choices[j], choices[i]];
   }
+  // Safety: ensure correct answer is always included
+  if (!choices.includes(correctAnswer)) {
+    choices[0] = correctAnswer;
+  }
   return choices;
 }

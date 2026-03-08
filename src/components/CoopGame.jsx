@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { generateQuestions, generateChoices } from '../utils/questions';
+import { generateChoices } from '../utils/questions';
 import { calculateScore, WRONG_PENALTY } from '../utils/scoring';
 import { playCorrect, playWrong, playExplosion, playStageStart, playStageClear, playGameComplete, startBGM, stopBGM } from '../utils/sound';
 import { PLANET_SPRITES, EARTH_SPRITE } from '../data/characters';
@@ -14,21 +14,20 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   const { isHost, roomChannel, lobbyChannel, players: initialPlayers } = coopData;
 
   const [currentDan, setCurrentDan] = useState(2);
-  const [allQuestions, setAllQuestions] = useState([]); // 9 questions for this dan
-  const [questionIndex, setQuestionIndex] = useState(0); // which planet group (0-based, each group = 4 questions)
-  const [subIndex, setSubIndex] = useState(0); // which sub-question in current planet (0-3)
+  const [allQuestions, setAllQuestions] = useState([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [subIndex, setSubIndex] = useState(0);
   const [choices, setChoices] = useState([]);
   const [selectedChoice, setSelectedChoice] = useState(-1);
   const [planetY, setPlanetY] = useState(0);
   const [planetStartTime, setPlanetStartTime] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [gamePhase, setGamePhase] = useState('ready'); // ready, playing, feedback, stageClear, gameOver
+  const [gamePhase, setGamePhase] = useState('ready');
   const [shake, setShake] = useState(false);
   const [flashColor, setFlashColor] = useState(null);
   const [currentPlanet, setCurrentPlanet] = useState(0);
   const [particles, setParticles] = useState([]);
 
-  // Contribution tracking: { nickname: { correctCount, score } }
   const [contributions, setContributions] = useState(() => {
     const c = {};
     initialPlayers.forEach((p) => {
@@ -37,51 +36,77 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     return c;
   });
   const [totalSessionScore, setTotalSessionScore] = useState(0);
-  const [connectedPlayers, setConnectedPlayers] = useState(initialPlayers);
 
   const animRef = useRef(null);
-  const subStartTimeRef = useRef(null); // when current sub-question started
+  const subStartTimeRef = useRef(null);
+
+  // Refs to avoid stale closures in broadcast handlers
+  const subIndexRef = useRef(0);
+  const questionIndexRef = useRef(0);
+  const allQuestionsRef = useRef([]);
+  const currentDanRef = useRef(2);
+  const gamePhaseRef = useRef('ready');
+  const totalSessionScoreRef = useRef(0);
+
+  // Keep refs in sync
+  useEffect(() => { subIndexRef.current = subIndex; }, [subIndex]);
+  useEffect(() => { questionIndexRef.current = questionIndex; }, [questionIndex]);
+  useEffect(() => { allQuestionsRef.current = allQuestions; }, [allQuestions]);
+  useEffect(() => { currentDanRef.current = currentDan; }, [currentDan]);
+  useEffect(() => { gamePhaseRef.current = gamePhase; }, [gamePhase]);
+  useEffect(() => { totalSessionScoreRef.current = totalSessionScore; }, [totalSessionScore]);
 
   // Current planet's questions (group of 4)
   const planetQuestions = allQuestions.slice(questionIndex * QUESTIONS_PER_PLANET, (questionIndex + 1) * QUESTIONS_PER_PLANET);
   const currentQuestion = planetQuestions[subIndex];
 
-  // Generate choices when question changes
+  // Generate choices when question changes - ensure correct answer is always included
   useEffect(() => {
     if (currentQuestion) {
-      setChoices(generateChoices(currentQuestion.a, currentQuestion.answer));
+      const newChoices = generateChoices(currentQuestion.a, currentQuestion.answer);
+      // Safety: ensure correct answer is in choices
+      if (!newChoices.includes(currentQuestion.answer)) {
+        newChoices[0] = currentQuestion.answer;
+        // Re-shuffle
+        for (let i = newChoices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newChoices[i], newChoices[j]] = [newChoices[j], newChoices[i]];
+        }
+      }
+      setChoices(newChoices);
       subStartTimeRef.current = Date.now();
     }
   }, [currentQuestion]);
 
   // Start a dan
   const startDan = useCallback((dan) => {
-    // Generate questions - need multiples of 4. Generate for multiple planets.
-    // For a dan: 9 questions normally. For coop, generate 8 (2 planets x 4) or 12 (3 planets x 4)
     const qs = [];
-    for (let i = 1; i <= 8; i++) { // 2 planets worth
+    for (let i = 1; i <= 8; i++) {
       qs.push({ a: dan, b: i, answer: dan * i });
     }
-    // Shuffle
     for (let i = qs.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [qs[i], qs[j]] = [qs[j], qs[i]];
     }
 
     setAllQuestions(qs);
+    allQuestionsRef.current = qs;
     setQuestionIndex(0);
+    questionIndexRef.current = 0;
     setSubIndex(0);
+    subIndexRef.current = 0;
     setGamePhase('ready');
+    gamePhaseRef.current = 'ready';
     setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
     playStageStart();
 
     setTimeout(() => {
       setGamePhase('playing');
+      gamePhaseRef.current = 'playing';
       setPlanetStartTime(Date.now());
       setPlanetY(0);
     }, 500);
 
-    // Broadcast to other players
     if (isHost) {
       setTimeout(() => {
         broadcastGame(roomChannel, {
@@ -103,7 +128,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     return () => { stopBGM(); cancelAnimationFrame(animRef.current); };
   }, []);
 
-  // Planet fall animation
+  // Planet fall animation - use refs to avoid stale closure
   useEffect(() => {
     if (gamePhase !== 'playing' || !planetStartTime) return;
 
@@ -113,8 +138,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setPlanetY(progress);
 
       if (progress >= 1) {
-        // Planet crashed - penalty for remaining questions
-        const remaining = QUESTIONS_PER_PLANET - subIndex;
+        const remaining = QUESTIONS_PER_PLANET - subIndexRef.current;
         handlePlanetCrash(remaining);
         return;
       }
@@ -122,9 +146,109 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     };
     animRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animRef.current);
-  }, [gamePhase, planetStartTime, subIndex]);
+  }, [gamePhase, planetStartTime]);
 
-  // Listen for broadcasts (non-host)
+  // Shared function to show answer feedback (no stale closure issues - uses only params)
+  const showAnswerFeedback = useCallback((answerNick, correct, score) => {
+    if (correct) {
+      playCorrect();
+      setFlashColor('rgba(0, 255, 0, 0.15)');
+      setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score });
+
+      setContributions((prev) => ({
+        ...prev,
+        [answerNick]: {
+          ...prev[answerNick],
+          correctCount: (prev[answerNick]?.correctCount || 0) + 1,
+          score: (prev[answerNick]?.score || 0) + score,
+        },
+      }));
+      setTotalSessionScore((s) => s + score);
+
+      setParticles(Array.from({ length: 8 }, (_, i) => ({
+        id: Date.now() + i,
+        x: Math.random() * 300,
+        color: ['#ff0', '#f80', '#0f0', '#0ff'][Math.floor(Math.random() * 4)],
+        delay: Math.random() * 0.3,
+      })));
+    } else {
+      playWrong();
+      setShake(true);
+      setFlashColor('rgba(255, 0, 0, 0.15)');
+      setFeedback({ type: 'wrong', text: `${answerNick} ${score}`, score });
+
+      setContributions((prev) => ({
+        ...prev,
+        [answerNick]: {
+          ...prev[answerNick],
+          score: (prev[answerNick]?.score || 0) + score,
+        },
+      }));
+      setTotalSessionScore((s) => s + score);
+    }
+  }, []);
+
+  // Advance to next sub-question or next planet (uses refs for current state)
+  const advanceAfterCorrect = useCallback(() => {
+    setFeedback(null);
+    setFlashColor(null);
+    setParticles([]);
+    setSelectedChoice(-1);
+
+    const curSubIndex = subIndexRef.current;
+    const curQuestionIndex = questionIndexRef.current;
+    const curAllQuestions = allQuestionsRef.current;
+
+    const nextSub = curSubIndex + 1;
+    if (nextSub >= QUESTIONS_PER_PLANET) {
+      playExplosion();
+      const nextQIndex = curQuestionIndex + 1;
+      if (nextQIndex * QUESTIONS_PER_PLANET >= curAllQuestions.length) {
+        if (isHost) {
+          handleDanComplete();
+        }
+      } else {
+        if (isHost) {
+          broadcastGame(roomChannel, {
+            type: 'next-planet',
+            questionIndex: nextQIndex,
+          });
+        }
+        setQuestionIndex(nextQIndex);
+        questionIndexRef.current = nextQIndex;
+        setSubIndex(0);
+        subIndexRef.current = 0;
+        setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
+        setPlanetStartTime(Date.now());
+        setPlanetY(0);
+      }
+    } else {
+      setSubIndex(nextSub);
+      subIndexRef.current = nextSub;
+    }
+  }, [isHost, roomChannel]);
+
+  // Handle answer result - called for BOTH host and non-host
+  const handleAnswerResult = useCallback((payload) => {
+    const { nickname: answerNick, correct, score } = payload;
+
+    showAnswerFeedback(answerNick, correct, score);
+
+    if (correct) {
+      setTimeout(() => {
+        advanceAfterCorrect();
+      }, 800);
+    } else {
+      setTimeout(() => {
+        setShake(false);
+        setFlashColor(null);
+        setFeedback(null);
+        setSelectedChoice(-1);
+      }, 600);
+    }
+  }, [showAnswerFeedback, advanceAfterCorrect]);
+
+  // Listen for broadcasts
   useEffect(() => {
     if (!roomChannel) return;
 
@@ -135,14 +259,20 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         case 'dan-start':
           if (!isHost) {
             setCurrentDan(payload.dan);
+            currentDanRef.current = payload.dan;
             setAllQuestions(payload.questions);
+            allQuestionsRef.current = payload.questions;
             setQuestionIndex(0);
+            questionIndexRef.current = 0;
             setSubIndex(0);
+            subIndexRef.current = 0;
             setCurrentPlanet(payload.planetIndex);
             setGamePhase('ready');
+            gamePhaseRef.current = 'ready';
             playStageStart();
             setTimeout(() => {
               setGamePhase('playing');
+              gamePhaseRef.current = 'playing';
               setPlanetStartTime(Date.now());
               setPlanetY(0);
             }, 500);
@@ -150,36 +280,55 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           break;
 
         case 'answer-result':
-          handleAnswerResult(payload);
+          // Host already processed locally, skip broadcast echo
+          if (!isHost) {
+            handleAnswerResult(payload);
+          }
           break;
 
         case 'planet-crash':
-          handleCrashResult(payload);
+          // Host already processed locally, skip broadcast echo
+          if (!isHost) {
+            handleCrashResult(payload);
+          }
           break;
 
         case 'next-planet':
-          setQuestionIndex(payload.questionIndex);
-          setSubIndex(0);
-          setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-          setPlanetStartTime(Date.now());
-          setPlanetY(0);
-          setGamePhase('playing');
-          setFeedback(null);
+          // Non-host: host already set locally
+          if (!isHost) {
+            setQuestionIndex(payload.questionIndex);
+            questionIndexRef.current = payload.questionIndex;
+            setSubIndex(0);
+            subIndexRef.current = 0;
+            setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
+            setPlanetStartTime(Date.now());
+            setPlanetY(0);
+            setGamePhase('playing');
+            gamePhaseRef.current = 'playing';
+            setFeedback(null);
+          }
           break;
 
         case 'stage-clear':
-          setGamePhase('stageClear');
-          playStageClear();
+          if (!isHost) {
+            setGamePhase('stageClear');
+            gamePhaseRef.current = 'stageClear';
+            playStageClear();
+          }
           break;
 
         case 'game-over':
-          setGamePhase('gameOver');
-          playGameComplete();
+          if (!isHost) {
+            setGamePhase('gameOver');
+            gamePhaseRef.current = 'gameOver';
+            playGameComplete();
+          }
           break;
 
         case 'next-dan':
           if (!isHost) {
             setCurrentDan(payload.dan);
+            currentDanRef.current = payload.dan;
           }
           break;
       }
@@ -189,7 +338,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     return () => {
       roomChannel.off('broadcast', { event: 'game' }, handler);
     };
-  }, [roomChannel, isHost]);
+  }, [roomChannel, isHost, handleAnswerResult]);
 
   // Keyboard controls
   useEffect(() => {
@@ -212,7 +361,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     if (gamePhase !== 'playing' || !currentQuestion) return;
     setSelectedChoice(answer);
 
-    // Send answer to host (or process locally if host)
     if (isHost) {
       processAnswer(nickname, answer);
     } else {
@@ -220,37 +368,60 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
         type: 'answer-attempt',
         nickname,
         answer,
-        subIndex,
+        subIndex: subIndexRef.current,
       });
     }
   };
 
-  // Host processes answers
+  // Host processes answer-attempt from other players
   useEffect(() => {
     if (!isHost || !roomChannel) return;
 
     const handler = ({ payload }) => {
       if (payload?.type === 'answer-attempt') {
-        processAnswer(payload.nickname, payload.answer);
+        // Use refs for current question data
+        const curSubIndex = subIndexRef.current;
+        const curQuestionIndex = questionIndexRef.current;
+        const curAllQuestions = allQuestionsRef.current;
+        const pqs = curAllQuestions.slice(curQuestionIndex * QUESTIONS_PER_PLANET, (curQuestionIndex + 1) * QUESTIONS_PER_PLANET);
+        const q = pqs[curSubIndex];
+        if (!q) return;
+
+        const correct = payload.answer === q.answer;
+        const elapsed = subStartTimeRef.current ? (Date.now() - subStartTimeRef.current) / 1000 : 10;
+        let score = correct ? calculateScore(elapsed) * SCORE_MULTIPLIER : WRONG_PENALTY * SCORE_MULTIPLIER;
+
+        // Broadcast result to all
+        broadcastGame(roomChannel, {
+          type: 'answer-result',
+          nickname: payload.nickname,
+          correct,
+          score,
+          answer: payload.answer,
+          subIndex: curSubIndex,
+        });
+
+        // Process locally for host
+        handleAnswerResult({ nickname: payload.nickname, correct, score, subIndex: curSubIndex });
       }
     };
 
     roomChannel.on('broadcast', { event: 'game' }, handler);
     return () => roomChannel.off('broadcast', { event: 'game' }, handler);
-  }, [isHost, roomChannel, currentQuestion, subIndex, allQuestions, questionIndex]);
+  }, [isHost, roomChannel, handleAnswerResult]);
 
+  // Host processes own answer locally
   const processAnswer = (answerNickname, answer) => {
-    if (!currentQuestion) return;
+    const curSubIndex = subIndexRef.current;
+    const curQuestionIndex = questionIndexRef.current;
+    const curAllQuestions = allQuestionsRef.current;
+    const pqs = curAllQuestions.slice(curQuestionIndex * QUESTIONS_PER_PLANET, (curQuestionIndex + 1) * QUESTIONS_PER_PLANET);
+    const q = pqs[curSubIndex];
+    if (!q) return;
 
-    const correct = answer === currentQuestion.answer;
+    const correct = answer === q.answer;
     const elapsed = subStartTimeRef.current ? (Date.now() - subStartTimeRef.current) / 1000 : 10;
-
-    let score = 0;
-    if (correct) {
-      score = calculateScore(elapsed) * SCORE_MULTIPLIER;
-    } else {
-      score = WRONG_PENALTY * SCORE_MULTIPLIER; // -200
-    }
+    let score = correct ? calculateScore(elapsed) * SCORE_MULTIPLIER : WRONG_PENALTY * SCORE_MULTIPLIER;
 
     // Broadcast result
     broadcastGame(roomChannel, {
@@ -259,101 +430,15 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       correct,
       score,
       answer,
-      subIndex,
+      subIndex: curSubIndex,
     });
 
-    // Process locally too
-    handleAnswerResult({ nickname: answerNickname, correct, score, subIndex });
-  };
-
-  const handleAnswerResult = (payload) => {
-    const { nickname: answerNick, correct, score } = payload;
-
-    if (correct) {
-      playCorrect();
-      setFlashColor('rgba(0, 255, 0, 0.15)');
-      setFeedback({ type: 'correct', text: `${answerNick} +${score}`, score });
-
-      // Update contributions
-      setContributions((prev) => ({
-        ...prev,
-        [answerNick]: {
-          ...prev[answerNick],
-          correctCount: (prev[answerNick]?.correctCount || 0) + 1,
-          score: (prev[answerNick]?.score || 0) + score,
-        },
-      }));
-      setTotalSessionScore((s) => s + score);
-
-      // Explosion particles
-      setParticles(Array.from({ length: 8 }, (_, i) => ({
-        id: Date.now() + i,
-        x: Math.random() * 300,
-        color: ['#ff0', '#f80', '#0f0', '#0ff'][Math.floor(Math.random() * 4)],
-        delay: Math.random() * 0.3,
-      })));
-
-      // Move to next sub-question or next planet
-      setTimeout(() => {
-        setFeedback(null);
-        setFlashColor(null);
-        setParticles([]);
-        setSelectedChoice(-1);
-
-        const nextSub = subIndex + 1;
-        if (nextSub >= QUESTIONS_PER_PLANET) {
-          // Planet cleared!
-          playExplosion();
-          const nextQIndex = questionIndex + 1;
-          if (nextQIndex * QUESTIONS_PER_PLANET >= allQuestions.length) {
-            // Dan complete
-            if (isHost) {
-              handleDanComplete();
-            }
-          } else {
-            // Next planet
-            if (isHost) {
-              broadcastGame(roomChannel, {
-                type: 'next-planet',
-                questionIndex: nextQIndex,
-              });
-            }
-            setQuestionIndex(nextQIndex);
-            setSubIndex(0);
-            setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
-            setPlanetStartTime(Date.now());
-            setPlanetY(0);
-          }
-        } else {
-          setSubIndex(nextSub);
-        }
-      }, 800);
-    } else {
-      playWrong();
-      setShake(true);
-      setFlashColor('rgba(255, 0, 0, 0.15)');
-      setFeedback({ type: 'wrong', text: `${answerNick} ${score}`, score });
-
-      setContributions((prev) => ({
-        ...prev,
-        [answerNick]: {
-          ...prev[answerNick],
-          score: (prev[answerNick]?.score || 0) + score,
-        },
-      }));
-      setTotalSessionScore((s) => s + score);
-
-      setTimeout(() => {
-        setShake(false);
-        setFlashColor(null);
-        setFeedback(null);
-        setSelectedChoice(-1);
-      }, 600);
-    }
+    // Process locally
+    handleAnswerResult({ nickname: answerNickname, correct, score, subIndex: curSubIndex });
   };
 
   const handlePlanetCrash = (remaining) => {
-    const penalty = remaining * Math.abs(WRONG_PENALTY) * SCORE_MULTIPLIER; // -200 per remaining
+    const penalty = remaining * Math.abs(WRONG_PENALTY) * SCORE_MULTIPLIER;
     setTotalSessionScore((s) => s - penalty);
     setShake(true);
     setFlashColor('rgba(255, 0, 0, 0.3)');
@@ -372,8 +457,10 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       setFlashColor(null);
       setFeedback(null);
 
-      const nextQIndex = questionIndex + 1;
-      if (nextQIndex * QUESTIONS_PER_PLANET >= allQuestions.length) {
+      const curQuestionIndex = questionIndexRef.current;
+      const curAllQuestions = allQuestionsRef.current;
+      const nextQIndex = curQuestionIndex + 1;
+      if (nextQIndex * QUESTIONS_PER_PLANET >= curAllQuestions.length) {
         if (isHost) handleDanComplete();
       } else {
         if (isHost) {
@@ -383,11 +470,14 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
           });
         }
         setQuestionIndex(nextQIndex);
+        questionIndexRef.current = nextQIndex;
         setSubIndex(0);
+        subIndexRef.current = 0;
         setCurrentPlanet(Math.floor(Math.random() * PLANET_SPRITES.length));
         setPlanetStartTime(Date.now());
         setPlanetY(0);
         setGamePhase('playing');
+        gamePhaseRef.current = 'playing';
       }
     }, 1500);
   };
@@ -406,20 +496,21 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   };
 
   const handleDanComplete = () => {
-    const nextDan = currentDan + 1;
+    const nextDan = currentDanRef.current + 1;
     if (nextDan > 9) {
-      // Game over
       broadcastGame(roomChannel, { type: 'game-over' });
       setGamePhase('gameOver');
+      gamePhaseRef.current = 'gameOver';
       playGameComplete();
     } else {
       broadcastGame(roomChannel, { type: 'stage-clear' });
       setGamePhase('stageClear');
+      gamePhaseRef.current = 'stageClear';
       playStageClear();
 
-      // After showing stage clear, start next dan
       setTimeout(() => {
         setCurrentDan(nextDan);
+        currentDanRef.current = nextDan;
         broadcastGame(roomChannel, { type: 'next-dan', dan: nextDan });
         startDan(nextDan);
       }, 3000);
@@ -430,7 +521,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     cancelAnimationFrame(animRef.current);
     stopBGM();
     leaveRoom(roomChannel, lobbyChannel);
-    onEnd(totalSessionScore);
+    onEnd(totalSessionScoreRef.current);
   };
 
   // Sorted contributions for display
