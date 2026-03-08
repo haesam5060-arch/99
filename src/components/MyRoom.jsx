@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CHARACTER_SPRITES, CHARACTER_PALETTES } from '../data/characters';
+import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
@@ -43,7 +43,7 @@ function FurnitureCanvas({ furnitureId, scale = 2 }) {
   return <canvas ref={canvasRef} width={w} height={h} style={{ width: w, height: h, imageRendering: 'pixelated' }} />;
 }
 
-function RoomCharacter({ characterId, x, y, flip, sleeping, scale = 2 }) {
+function RoomCharacter({ characterId, xPct, yPct, flip, sleeping, scale = 2 }) {
   const canvasRef = useRef(null);
   const palette = CHARACTER_PALETTES[characterId];
   const sprite = CHARACTER_SPRITES[characterId]?.idle;
@@ -68,14 +68,14 @@ function RoomCharacter({ characterId, x, y, flip, sleeping, scale = 2 }) {
       height={canvasSize}
       style={{
         position: 'absolute',
-        left: x,
-        top: y - canvasSize + 10,
+        left: `${xPct}%`,
+        bottom: `${100 - yPct}%`,
         width: canvasSize,
         height: canvasSize,
         imageRendering: 'pixelated',
         transform: `scaleX(${flip ? -1 : 1})${sleeping ? ' rotate(90deg) translateY(8px)' : ''}`,
-        transition: 'left 0.5s linear, top 0.3s linear',
-        zIndex: Math.floor(typeof y === 'string' ? parseInt(y) : y),
+        transition: 'left 0.5s linear, bottom 0.3s linear',
+        zIndex: Math.floor(yPct),
       }}
     />
   );
@@ -106,25 +106,48 @@ export default function MyRoom({ player, nickname, onBack }) {
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
   }, [layout, nickname]);
 
+  // 바닥 영역: WALL_H(60) ~ ROOM_H(200), 즉 y% = 30% ~ 95%
+  const FLOOR_MIN_Y = ((WALL_H + 20) / ROOM_H) * 100; // ~40%
+  const FLOOR_MAX_Y = 92; // 바닥 근처
+
   useEffect(() => {
     const states = ownedCharacters.map((id, i) => ({
       id,
-      x: 30 + (i * 40) % (ROOM_W - 60),
-      y: ROOM_H - 10 - Math.random() * 5,
+      x: (10 + (i * 20) % 80), // x를 %로 관리 (0~100)
+      y: FLOOR_MAX_Y - Math.random() * 5,
       action: 'idle',
       targetX: null,
       flip: Math.random() > 0.5,
       actionTimer: Date.now() + randRange(1000, 3000),
       interacting: null,
+      speech: null,       // { text, until }
     }));
     setCharStates(states);
   }, [ownedCharacters.length]);
+
+  // 랜덤으로 캐릭터가 기술명을 외침
+  useEffect(() => {
+    if (editMode || charStates.length === 0) return;
+    const interval = setInterval(() => {
+      setCharStates(prev => {
+        const awake = prev.filter(ch => ch.action !== 'sleep');
+        if (awake.length === 0) return prev;
+        const target = awake[Math.floor(Math.random() * awake.length)];
+        return prev.map(ch => {
+          if (ch !== target) return ch;
+          return { ...ch, speech: { text: getRandomSkill(ch.id), until: Date.now() + 2500 } };
+        });
+      });
+    }, randRange(3000, 6000));
+    return () => clearInterval(interval);
+  }, [editMode, charStates.length]);
 
   const findInteraction = useCallback((type) => {
     for (const item of layout) {
       const f = FURNITURE_DEFS[item.id];
       if (f?.interaction === type) {
-        return { x: item.x + (f.w * SCALE) / 2, y: item.y };
+        // layout의 x,y는 ROOM 좌표(0~300, 0~200) → %로 변환
+        return { x: ((item.x + f.w) / ROOM_W) * 100, y: (item.y / ROOM_H) * 100 };
       }
     }
     return null;
@@ -136,15 +159,20 @@ export default function MyRoom({ player, nickname, onBack }) {
     const tick = () => {
       setCharStates(prev => prev.map(ch => {
         const now = Date.now();
+        // 말풍선 만료 처리
+        const speechExpired = ch.speech && now > ch.speech.until;
+        const updatedSpeech = speechExpired ? null : ch.speech;
+
         if (now < ch.actionTimer) {
           if (ch.action === 'walk' && ch.targetX != null) {
             const dx = ch.targetX - ch.x;
-            if (Math.abs(dx) < 2) {
+            if (Math.abs(dx) < 1) {
               const nextAction = ch.interacting || 'idle';
-              return { ...ch, x: ch.targetX, action: nextAction, targetX: null };
+              return { ...ch, x: ch.targetX, action: nextAction, targetX: null, speech: updatedSpeech };
             }
-            return { ...ch, x: ch.x + Math.sign(dx) * 0.8, flip: dx < 0 };
+            return { ...ch, x: ch.x + Math.sign(dx) * 0.3, flip: dx < 0, speech: updatedSpeech };
           }
+          if (speechExpired) return { ...ch, speech: null };
           return ch;
         }
 
@@ -158,19 +186,19 @@ export default function MyRoom({ player, nickname, onBack }) {
         const duration = randRange(...ACTION_DURATION[newAction]);
 
         if (newAction === 'walk') {
-          const tx = 20 + Math.random() * (ROOM_W - 60);
+          const tx = 5 + Math.random() * 85; // 0~100% 범위
           return { ...ch, action: 'walk', targetX: tx, flip: tx < ch.x, actionTimer: now + duration, interacting: null };
         }
         if (newAction === 'sleep') {
           const pos = findInteraction('sleep');
-          if (pos && Math.abs(ch.x - pos.x) > 30) {
+          if (pos && Math.abs(ch.x - pos.x) > 10) {
             return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 2000, interacting: 'sleep' };
           }
           return { ...ch, action: 'sleep', targetX: null, actionTimer: now + duration, interacting: 'sleep' };
         }
         if (newAction === 'sit') {
           const pos = findInteraction('sit');
-          if (pos && Math.abs(ch.x - pos.x) > 30) {
+          if (pos && Math.abs(ch.x - pos.x) > 10) {
             return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 2000, interacting: 'sit' };
           }
           return { ...ch, action: 'sit', targetX: null, actionTimer: now + duration, interacting: 'sit' };
@@ -228,6 +256,13 @@ export default function MyRoom({ player, nickname, onBack }) {
         @keyframes zzzFloat {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-8px); }
+        }
+        @keyframes speechBubble {
+          0% { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.5); }
+          15% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.05); }
+          25% { transform: translateX(-50%) translateY(0) scale(1); }
+          75% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.9); }
         }
       `}</style>
 
@@ -356,6 +391,42 @@ export default function MyRoom({ player, nickname, onBack }) {
                 zIndex: 9999, pointerEvents: 'none',
               }}>
                 z Z z
+              </div>
+            )}
+            {ch.speech && (
+              <div
+                key={ch.speech.text + ch.speech.until}
+                style={{
+                  position: 'absolute',
+                  left: `${ch.x}%`,
+                  top: `${ch.y - 22}%`,
+                  transform: 'translateX(-50%)',
+                  background: '#fff',
+                  color: CHARACTER_PALETTES[ch.id]?.colors?.[1] || '#333',
+                  border: `2px solid ${CHARACTER_PALETTES[ch.id]?.colors?.[2] || '#666'}`,
+                  borderRadius: 6,
+                  padding: '3px 6px',
+                  fontSize: 7,
+                  fontFamily: "'Press Start 2P', monospace",
+                  whiteSpace: 'nowrap',
+                  zIndex: 9999,
+                  pointerEvents: 'none',
+                  animation: 'speechBubble 2.5s ease-out forwards',
+                  textShadow: 'none',
+                  boxShadow: '1px 1px 0 rgba(0,0,0,0.2)',
+                }}
+              >
+                {ch.speech.text}
+                <div style={{
+                  position: 'absolute',
+                  bottom: -6,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: 0, height: 0,
+                  borderLeft: '4px solid transparent',
+                  borderRight: '4px solid transparent',
+                  borderTop: `6px solid ${CHARACTER_PALETTES[ch.id]?.colors?.[2] || '#666'}`,
+                }} />
               </div>
             )}
           </div>
