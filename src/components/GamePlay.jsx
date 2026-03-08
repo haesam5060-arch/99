@@ -634,7 +634,7 @@ export default function GamePlay({
               ? 'transform 0.1s ease-in'
               : 'transform 0.2s ease-out',
             transform: charFrame === 'attack'
-              ? 'scale(3.5) translateY(-25px)'
+              ? 'scale(1.75) translateY(-12px)'
               : charFrame === 'windup'
               ? 'scale(0.7) translateY(5px)'
               : 'scale(1)',

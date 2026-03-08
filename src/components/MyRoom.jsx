@@ -594,6 +594,7 @@ export default function MyRoom({ player, nickname, onBack }) {
       playClick();
       leaveVisitRoom(visitChannelRef.current);
       visitChannelRef.current = null;
+      visitChannelReadyRef.current = false;
       visitModeRef.current = null;
       setVisitMode(null);
       setVisitTarget('');
@@ -773,6 +774,7 @@ export default function MyRoom({ player, nickname, onBack }) {
     playClick();
     leaveVisitRoom(visitChannelRef.current);
     visitChannelRef.current = null;
+    visitChannelReadyRef.current = false;
     // ref를 먼저 null로 설정하여 layout 복원 시 저장 방지
     visitModeRef.current = null;
     setVisitMode(null);
