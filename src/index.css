@@ -392,6 +392,11 @@ body {
   display: block;
 }
 
+@keyframes tipPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 6px rgba(255,136,0,0.6); }
+  50% { transform: scale(1.15); box-shadow: 0 0 12px rgba(255,136,0,0.9); }
+}
+
 @media (max-width: 480px) {
   .game-title .title-main { font-size: 24px; letter-spacing: 2px; text-shadow: 2px 2px 0 #b8860b, 4px 4px 0 #8b6508, -1px -1px 0 #ffe566; }
   .game-title .title-sub { font-size: 14px; letter-spacing: 2px; }

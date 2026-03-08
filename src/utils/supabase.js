@@ -208,10 +208,33 @@ export async function getRoomData(nickname) {
   if (!supabase) return null;
   const { data } = await supabase
     .from('players')
-    .select('room_layout, room_furniture, characters, equipped_character, school_name')
+    .select('room_layout, room_furniture, characters, equipped_character, school_name, yard_flowers')
     .eq('nickname', nickname)
     .single();
   return data;
+}
+
+// Save yard flowers to Supabase
+export async function saveYardFlowers(nickname, flowers) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('players')
+    .update({ yard_flowers: flowers, updated_at: new Date().toISOString() })
+    .eq('nickname', nickname)
+    .select()
+    .single();
+  return data;
+}
+
+// Get yard flowers for a specific player
+export async function getYardFlowers(nickname) {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('players')
+    .select('yard_flowers')
+    .eq('nickname', nickname)
+    .single();
+  return data?.yard_flowers || [];
 }
 
 // Update school name

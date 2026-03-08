@@ -3,7 +3,7 @@ import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/c
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
-import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore } from '../utils/supabase';
+import { isOnline, saveRoomData, getRoomData, hostVisitRoom, joinVisitRoom, broadcastVisitPosition, leaveVisitRoom, updateOnlineScore, saveYardFlowers, getYardFlowers } from '../utils/supabase';
 import { updatePlayerScore } from '../utils/storage';
 
 const SCALE = 2;
@@ -207,6 +207,25 @@ export default function MyRoom({ player, nickname, onBack }) {
   const tailRef = useRef([]);
   const [flowers, setFlowers] = useState([]); // [{ id, x, y, createdAt }]
   const flowerIdRef = useRef(0);
+
+  // ── 앞마당 시스템 ──
+  const [yardMode, setYardMode] = useState(null); // null | 'own' | 'visiting'
+  const [yardOwner, setYardOwner] = useState(''); // 앞마당 주인 닉네임
+  const [yardFlowers, setYardFlowers] = useState([]); // [{ gridX, gridY, type }]
+  const [yardCharPos, setYardCharPos] = useState({ x: 150, y: 160 }); // 가상좌표 300x200
+  const [doorChoice, setDoorChoice] = useState(false); // 문 선택 팝업
+  const yardCharFlip = useRef(false);
+
+  // 앞마당 꽃 종류 (5가지)
+  const YARD_FLOWER_TYPES = [
+    { name: '해바라기', color1: '#ffcc00', color2: '#ff8800', color3: '#886600', stem: '#228822' },
+    { name: '튤립', color1: '#ff4466', color2: '#cc2244', color3: '#aa1133', stem: '#228822' },
+    { name: '장미', color1: '#ff2244', color2: '#cc0022', color3: '#880011', stem: '#1a7a1a' },
+    { name: '데이지', color1: '#ffffff', color2: '#ffee44', color3: '#ccbb22', stem: '#2a8a2a' },
+    { name: '라벤더', color1: '#aa66ff', color2: '#8844dd', color3: '#6622bb', stem: '#228822' },
+  ];
+  const YARD_COLS = 8;
+  const YARD_ROWS = 5;
 
   // ── 구구단 퀴즈 (자동차 타기 / 문 이동 전) ──
   const [quiz, setQuiz] = useState(null); // { a, b, answer, choices, onCorrect }
@@ -1368,20 +1387,12 @@ export default function MyRoom({ player, nickname, onBack }) {
                     내리기
                   </button>
                 )}
-                {/* 문 근처: 친구집 놀러가기 */}
-                {nearDoor && isOnline() && ridingTruckIdx == null && (
+                {/* 문 근처: 외출 선택 */}
+                {nearDoor && ridingTruckIdx == null && !doorChoice && (
                   <button onClick={() => {
                     playClick();
                     generateRoomQuiz(() => {
-                      // 이미 방문 중이면 현재 방문 채널 정리
-                      if (visitMode === 'visiting' && visitChannelRef.current) {
-                        leaveVisitRoom(visitChannelRef.current);
-                        visitChannelRef.current = null;
-                        setGuests([]);
-                      }
-                      setVisitMode('input');
-                      setVisitTarget('');
-                      setVisitError('');
+                      setDoorChoice(true);
                     });
                   }} style={{
                     position: 'absolute', left: ch.x, top: ch.y - 58,
@@ -1395,7 +1406,7 @@ export default function MyRoom({ player, nickname, onBack }) {
                     boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                     animation: 'zzzFloat 1s ease-in-out infinite',
                   }}>
-                    친구집 놀러가기!
+                    외출하기!
                   </button>
                 )}
               </>
@@ -1725,6 +1736,66 @@ export default function MyRoom({ player, nickname, onBack }) {
                 {id === equippedId ? '▶ ' : ''}{CHARACTER_PALETTES[id]?.name || `#${id}`}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 문 외출 선택 팝업 */}
+      {doorChoice && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 10000,
+        }} onClick={() => setDoorChoice(false)}>
+          <div style={{
+            background: '#1a1a5e', border: '2px solid #4a4a8a', borderRadius: 10,
+            padding: 24, minWidth: 240, textAlign: 'center',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 11, color: 'var(--gold)', marginBottom: 16, fontFamily: "'Press Start 2P', monospace" }}>
+              어디로 갈까?
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button className="pixel-btn" onClick={() => {
+                playClick();
+                setDoorChoice(false);
+                // 내 앞마당으로
+                setYardOwner(nickname);
+                setYardCharPos({ x: 150, y: 160 });
+                // 온라인이면 Supabase에서 내 꽃 로드
+                if (isOnline()) {
+                  getYardFlowers(nickname).then(f => setYardFlowers(f || []));
+                } else {
+                  try {
+                    const saved = localStorage.getItem(`yard_flowers_${nickname}`);
+                    setYardFlowers(saved ? JSON.parse(saved) : []);
+                  } catch { setYardFlowers([]); }
+                }
+                setYardMode('own');
+              }} style={{ fontSize: 9, padding: '10px 16px' }}>
+                내 앞마당
+              </button>
+              {isOnline() && (
+                <button className="pixel-btn gold" onClick={() => {
+                  playClick();
+                  setDoorChoice(false);
+                  // 이미 방문 중이면 현재 방문 채널 정리
+                  if (visitMode === 'visiting' && visitChannelRef.current) {
+                    leaveVisitRoom(visitChannelRef.current);
+                    visitChannelRef.current = null;
+                    setGuests([]);
+                  }
+                  setVisitMode('input');
+                  setVisitTarget('');
+                  setVisitError('');
+                }} style={{ fontSize: 9, padding: '10px 16px' }}>
+                  친구방 놀러가기
+                </button>
+              )}
+              <button className="pixel-btn red" onClick={() => { playClick(); setDoorChoice(false); }}
+                style={{ fontSize: 8, padding: '6px 12px' }}>
+                취소
+              </button>
+            </div>
           </div>
         </div>
       )}
