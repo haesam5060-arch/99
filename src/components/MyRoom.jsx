@@ -613,8 +613,9 @@ export default function MyRoom({ player, nickname, onBack }) {
     if (!data) { setVisitError('존재하지 않는 닉네임이에요'); return; }
     // 방문 모드 ref를 먼저 설정하여 레이아웃 저장 방지
     visitModeRef.current = 'visiting';
-    // 상대방 방 레이아웃 로드
-    if (data.room_layout?.length > 0) setLayout(data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]));
+    // 상대방 방 레이아웃 로드 (없으면 빈 방으로)
+    const hostLayout = Array.isArray(data.room_layout) ? data.room_layout.filter(item => item && item.id && FURNITURE_DEFS[item.id]) : [];
+    setLayout(hostLayout);
     // 상대방 보유 캐릭터로 교체 (내 장착 캐릭터만 포함)
     const hostChars = data.characters || [0];
     const roomChars = hostChars.includes(equippedId)
@@ -668,8 +669,10 @@ export default function MyRoom({ player, nickname, onBack }) {
         if (payload.type === 'full-state' && payload.chars) {
           const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
           setCharStates(prev => {
+            // 방문자 자신의 캐릭터는 반드시 보존
             const myChar = prev.find(c => Number(c.id) === equippedId);
-            return payload.chars.map(hc => {
+            const result = payload.chars.map(hc => {
+              // 내 캐릭터 ID가 호스트에도 있으면 내 로컬 상태 유지
               if (Number(hc.id) === equippedId && myChar) return myChar;
               const existing = prev.find(c => c.id === hc.id);
               return {
@@ -682,10 +685,14 @@ export default function MyRoom({ player, nickname, onBack }) {
                 speechTimer: existing?.speechTimer || Date.now() + 10000,
               };
             });
+            // 내 캐릭터가 호스트 목록에 없으면 추가 (호스트가 내 캐릭터를 안 가진 경우)
+            if (myChar && !result.find(c => Number(c.id) === equippedId)) {
+              result.push(myChar);
+            }
+            return result;
           });
-          // 호스트 장착캐릭터 → guests에도 반영 (닉네임+위치 표시용)
+          // 호스트 장착캐릭터 → guests에 반영 (닉네임 표시 + 상호작용 감지용, 스프라이트는 비렌더)
           if (payload.nickname) {
-            const rw = roomSizeRef.current.w, rh = roomSizeRef.current.h;
             const hostChar = payload.chars.find(c => Number(c.id) === payload.characterId);
             if (hostChar) {
               const hx = hostChar.rx * rw, hy = hostChar.ry * rh;
@@ -1726,29 +1733,35 @@ export default function MyRoom({ player, nickname, onBack }) {
           </div>
         ))}
 
-        {/* 게스트 캐릭터 (방문자) */}
-        {!editMode && guests.map((g) => (
-          <div key={`guest-${g.nickname}`}>
-            <RoomCharacter
-              characterId={g.characterId}
-              x={g.x} y={g.y}
-              flip={g.flip}
-              sleeping={false}
-              scale={SCALE}
-            />
-            <div style={{
-              position: 'absolute', left: g.x, top: g.y - 40,
-              transform: 'translateX(-50%)',
-              fontSize: 6, color: '#88ccff',
-              fontFamily: "'Press Start 2P', monospace",
-              textShadow: '1px 1px 0 #000',
-              zIndex: 9998, pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-            }}>
-              {g.nickname}
+        {/* 게스트 캐릭터 (방문자/호스트) */}
+        {!editMode && guests.map((g) => {
+          // 방문 중일 때 _isHost 게스트는 charStates에서 이미 렌더되므로 스프라이트 생략
+          const skipSprite = visitMode === 'visiting' && g._isHost;
+          return (
+            <div key={`guest-${g.nickname}`}>
+              {!skipSprite && (
+                <RoomCharacter
+                  characterId={g.characterId}
+                  x={g.x} y={g.y}
+                  flip={g.flip}
+                  sleeping={false}
+                  scale={SCALE}
+                />
+              )}
+              <div style={{
+                position: 'absolute', left: g.x, top: g.y - 40,
+                transform: 'translateX(-50%)',
+                fontSize: 6, color: '#88ccff',
+                fontFamily: "'Press Start 2P', monospace",
+                textShadow: '1px 1px 0 #000',
+                zIndex: 9998, pointerEvents: 'none',
+                whiteSpace: 'nowrap',
+              }}>
+                {g.nickname}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* 이모지 리액션 */}
         {emojis.map(e => {
