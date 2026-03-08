@@ -62,6 +62,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
     }))
   );
   const [rankChanges, setRankChanges] = useState({});
+  const [rankAlert, setRankAlert] = useState(null); // { myRank, direction, prevRank }
   const prevRankMapRef = useRef({});
   const finishedByOtherRef = useRef(false);
 
@@ -155,6 +156,13 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
       if (Object.keys(changes).length > 0) {
         setRankChanges(changes);
         setTimeout(() => setRankChanges({}), 1500);
+        // 내 순위 변동 시 큰 알림
+        if (changes[nickname]) {
+          const myNewRank = newRankMap[nickname] + 1;
+          const myPrevRank = prev[nickname] + 1;
+          setRankAlert({ myRank: myNewRank, direction: changes[nickname], prevRank: myPrevRank });
+          setTimeout(() => setRankAlert(null), 2000);
+        }
       }
       prevRankMapRef.current = newRankMap;
       setRankings(sorted);
@@ -373,23 +381,62 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
 
   // === 게임 완료 - 시상식 ===
   if (gamePhase === 'finished') {
+    const FIRST_PLACE_BONUS = 5000;
+    const finalScore = myRank === 1 ? myScore + FIRST_PLACE_BONUS : myScore;
+    const messages = [
+      { rank: 1, msg: '최고의 구구단 마스터!', color: '#ffd700' },
+      { rank: 2, msg: '아깝다! 다음엔 1위!', color: '#c0c0c0' },
+      { rank: 3, msg: '대단해요! 끝까지 화이팅!', color: '#cd7f32' },
+    ];
+    const myMsg = messages.find(m => m.rank === myRank) || { msg: '수고했어요! 다음엔 더 잘할 수 있어요!', color: '#88aaff' };
+
     return (
-      <div className="game-container" style={{ justifyContent: 'center', paddingTop: 16 }}>
+      <div className="game-container" style={{ justifyContent: 'center', paddingTop: 10, position: 'relative', overflow: 'hidden' }}>
+        {/* 폭죽 파티클 */}
+        <Fireworks />
+
         <div style={{
-          fontSize: 22, color: '#ffd700', marginBottom: 4, fontFamily: "'Press Start 2P', monospace",
-          textShadow: '2px 2px 0 #b8860b',
+          fontSize: 20, color: '#ffd700', marginBottom: 2, fontFamily: "'Press Start 2P', monospace",
+          animation: 'celebrationGlow 2s ease-in-out infinite',
         }}>
           게임 완료!
         </div>
-        <div style={{ fontSize: 12, color: '#fff', marginBottom: 16 }}>
-          내 점수: <span style={{ color: '#ffd700' }}>{myScore.toLocaleString()}P</span>
-          {' '}<span style={{ fontSize: 10, color: myRank === 1 ? '#ffd700' : '#aaa' }}>({myRank}위)</span>
+
+        {/* 응원 메시지 */}
+        <div style={{
+          fontSize: 10, color: myMsg.color, marginBottom: 8,
+          fontFamily: "'Press Start 2P', monospace",
+          textShadow: `0 0 10px ${myMsg.color}44`,
+          animation: 'slideUp 0.6s ease-out',
+        }}>
+          {myMsg.msg}
         </div>
+
+        <div style={{ fontSize: 11, color: '#fff', marginBottom: 4 }}>
+          내 점수: <span style={{ color: '#ffd700', fontFamily: "'Press Start 2P', monospace" }}>{myScore.toLocaleString()}P</span>
+          {' '}<span style={{ fontSize: 9, color: myRank === 1 ? '#ffd700' : '#aaa' }}>({myRank}위)</span>
+        </div>
+
+        {/* 1위 보너스 표시 */}
+        {myRank === 1 && (
+          <div style={{
+            fontSize: 12, color: '#ff6600', fontFamily: "'Press Start 2P', monospace",
+            marginBottom: 6, animation: 'scorePopup 1s ease-out',
+            textShadow: '0 0 10px rgba(255,102,0,0.6)',
+          }}>
+            +{FIRST_PLACE_BONUS.toLocaleString()}P 1위 보너스!
+          </div>
+        )}
 
         {/* 시상대 */}
         <Podium rankings={rankings} nickname={nickname} />
 
-        <button className="pixel-btn gold" onClick={handleQuit} style={{ marginTop: 16 }}>나가기</button>
+        <button className="pixel-btn gold" onClick={() => {
+          clearInterval(timerRef.current);
+          stopBGM();
+          leaveRoom(roomChannel, lobbyChannel);
+          onEnd(finalScore);
+        }} style={{ marginTop: 12 }}>나가기</button>
       </div>
     );
   }
@@ -407,53 +454,100 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
   // === 플레이 중 ===
   const timerPct = timer / QUESTION_TIME;
   const timerColor = timerPct > 0.6 ? '#00cc66' : timerPct > 0.3 ? '#ffa500' : '#ff3333';
+  const rankColor = myRank === 1 ? '#ffd700' : myRank === 2 ? '#c0c0c0' : myRank === 3 ? '#cd7f32' : '#aaa';
 
   return (
-    <div className={`game-container ${shake ? 'shake' : ''}`} style={{ justifyContent: 'flex-start', paddingTop: 8 }}>
+    <div className={`game-container ${shake ? 'shake' : ''}`} style={{ justifyContent: 'flex-start', paddingTop: 6, position: 'relative', overflow: 'hidden' }}>
       {flashColor && <div className="flash-overlay" style={{ background: flashColor }} />}
 
-      {/* 상단 HUD */}
+      {/* 순위 변동 알림 오버레이 */}
+      {rankAlert && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: rankAlert.direction === 'up' ? 'rgba(0,255,0,0.08)' : 'rgba(255,0,0,0.08)',
+          pointerEvents: 'none',
+          animation: 'rankAlertFade 2s ease-out forwards',
+        }}>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            animation: 'rankAlertPop 0.4s ease-out',
+          }}>
+            <div style={{
+              fontSize: 48, fontFamily: "'Press Start 2P', monospace",
+              color: rankAlert.direction === 'up' ? '#00ff00' : '#ff4444',
+              textShadow: `0 0 20px ${rankAlert.direction === 'up' ? '#00ff00' : '#ff4444'}, 3px 3px 0 #000`,
+              lineHeight: 1,
+            }}>
+              {rankAlert.direction === 'up' ? '▲' : '▼'}
+            </div>
+            <div style={{
+              fontSize: 28, fontFamily: "'Press Start 2P', monospace",
+              color: '#fff', textShadow: '3px 3px 0 #000',
+              marginTop: 4,
+            }}>
+              {rankAlert.myRank}위
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 상단: 내 순위 + 정보 바 */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        width: '100%', padding: '0 8px', marginBottom: 4,
-        fontFamily: "'Press Start 2P', monospace",
+        width: '100%', padding: '4px 8px', marginBottom: 2,
+        background: 'rgba(13,13,61,0.8)', borderRadius: 6,
+        border: `2px solid ${rankColor}44`,
       }}>
-        <span style={{ fontSize: 12, color: '#ffd700' }}>{currentDan}단</span>
-        <span style={{ fontSize: 9, color: '#aaa' }}>{qInDan + 1}/9</span>
-        <span style={{ fontSize: 11, color: '#fff' }}>{myScore.toLocaleString()}P</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontSize: 18, fontFamily: "'Press Start 2P', monospace",
+            color: rankColor, textShadow: `0 0 8px ${rankColor}66`,
+          }}>
+            {myRank === 1 ? '👑' : `${myRank}위`}
+          </span>
+          <span style={{ fontSize: 12, color: '#ffd700', fontFamily: "'Press Start 2P', monospace" }}>
+            {currentDan}단
+          </span>
+          <span style={{ fontSize: 8, color: '#aaa' }}>{qInDan + 1}/9</span>
+        </div>
+        <span style={{ fontSize: 13, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
+          {myScore.toLocaleString()}P
+        </span>
       </div>
 
       {/* 타이머 바 */}
-      <div style={{ width: '100%', height: 8, background: '#1a1a4e', marginBottom: 6, borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ width: '100%', height: 6, background: '#1a1a4e', marginBottom: 4, borderRadius: 3, overflow: 'hidden' }}>
         <div style={{
           width: `${timerPct * 100}%`, height: '100%', background: timerColor,
           transition: 'width 0.05s linear, background 0.3s',
-          borderRadius: 4,
+          borderRadius: 3,
+          boxShadow: timerPct <= 0.3 ? `0 0 8px ${timerColor}` : 'none',
         }} />
       </div>
 
       {/* 종료 버튼 */}
       <button onClick={handleQuit} style={{
-        position: 'fixed', top: 10, left: 10, zIndex: 1000,
-        background: 'rgba(20,20,50,0.8)', border: '2px solid #ff4444', color: '#ff4444',
-        fontFamily: "'Press Start 2P', monospace", fontSize: 9, padding: '6px 12px',
+        position: 'fixed', top: 8, left: 8, zIndex: 1000,
+        background: 'rgba(20,20,50,0.9)', border: '2px solid #ff4444', color: '#ff4444',
+        fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: '5px 10px',
         cursor: 'pointer', borderRadius: 4,
-      }}>종료</button>
+      }}>X</button>
 
-      {/* 메인 영역 */}
-      <div style={{ flex: 1, width: '100%', display: 'flex', position: 'relative' }}>
+      {/* 메인 영역: 문제 + 랭킹 */}
+      <div style={{ flex: 1, width: '100%', display: 'flex', position: 'relative', gap: 4, minHeight: 0 }}>
         {/* 왼쪽: 문제 + 선택지 */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
           {/* 문제 */}
           <div style={{
             fontSize: 28, fontFamily: "'Press Start 2P', monospace",
-            color: '#fff', textShadow: '2px 2px 0 #000', marginBottom: 24,
+            color: '#fff', textShadow: '2px 2px 0 #000', marginBottom: 16,
           }}>
             {currentQuestion.dan} × {currentQuestion.b} = ?
           </div>
 
           {/* 진행도 점 */}
-          <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
             {Array.from({ length: 9 }, (_, i) => (
               <div key={i} style={{
                 width: 8, height: 8, borderRadius: '50%',
@@ -487,7 +581,7 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
               fontSize: feedback.type === 'correct' ? 22 : 18,
               color: feedback.type === 'correct' ? '#00ff00' : '#ff4444',
               fontFamily: "'Press Start 2P', monospace",
-              textShadow: '2px 2px 0 #000', marginTop: 12,
+              textShadow: '2px 2px 0 #000', marginTop: 10,
               animation: 'scorePopup 0.8s ease-out',
             }}>
               {feedback.text}
@@ -497,48 +591,66 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
 
         {/* 오른쪽: 실시간 랭킹 */}
         <div style={{
-          width: 120, padding: '8px 6px', borderLeft: '1px solid #333366',
+          width: 140, padding: '6px 6px', borderLeft: '2px solid #333366',
           display: 'flex', flexDirection: 'column',
+          background: 'rgba(13,13,61,0.5)', borderRadius: '0 0 8px 0',
         }}>
-          <div style={{ fontSize: 8, color: '#ffd700', marginBottom: 8, textAlign: 'center', fontFamily: "'Press Start 2P', monospace" }}>
+          <div style={{
+            fontSize: 9, color: '#ffd700', marginBottom: 6, textAlign: 'center',
+            fontFamily: "'Press Start 2P', monospace",
+            textShadow: '0 0 6px rgba(255,215,0,0.4)',
+            letterSpacing: 1,
+          }}>
             LIVE 순위
           </div>
           {rankings.map((r, i) => {
             const isMe = r.nickname === nickname;
             const change = rankChanges[r.nickname];
+            const medalColor = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#555';
             return (
               <div key={r.nickname} style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 2px', marginBottom: 2,
-                background: isMe ? 'rgba(255,215,0,0.15)' : change === 'up' ? 'rgba(0,255,0,0.1)' : change === 'down' ? 'rgba(255,0,0,0.1)' : 'transparent',
-                borderRadius: 4,
-                transition: 'background 0.3s, transform 0.3s',
-                transform: change === 'up' ? 'scale(1.05)' : 'scale(1)',
-                border: isMe ? '1px solid rgba(255,215,0,0.4)' : '1px solid transparent',
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 4px', marginBottom: 3, borderRadius: 5,
+                background: isMe
+                  ? 'rgba(255,215,0,0.18)'
+                  : change === 'up' ? 'rgba(0,255,0,0.15)'
+                  : change === 'down' ? 'rgba(255,0,0,0.12)'
+                  : 'rgba(255,255,255,0.03)',
+                border: isMe ? '2px solid rgba(255,215,0,0.5)' : `1px solid ${change ? (change === 'up' ? 'rgba(0,255,0,0.3)' : 'rgba(255,0,0,0.3)') : 'transparent'}`,
+                transition: 'all 0.4s ease',
+                transform: change === 'up' ? 'scale(1.08)' : change === 'down' ? 'scale(0.95)' : 'scale(1)',
+                boxShadow: change === 'up' ? '0 0 12px rgba(0,255,0,0.3)' : change === 'down' ? '0 0 12px rgba(255,0,0,0.3)' : isMe ? '0 0 8px rgba(255,215,0,0.2)' : 'none',
               }}>
+                {/* 순위 번호 */}
                 <span style={{
-                  fontSize: 10, fontWeight: 'bold', width: 16, textAlign: 'center',
-                  color: i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#666',
-                  fontFamily: "'Press Start 2P', monospace",
+                  fontSize: 13, fontWeight: 'bold', width: 22, textAlign: 'center',
+                  color: medalColor, fontFamily: "'Press Start 2P', monospace",
+                  textShadow: i < 3 ? `0 0 6px ${medalColor}66` : 'none',
                 }}>
                   {i === 0 ? '👑' : i + 1}
                 </span>
-                <PixelCharacter characterId={r.characterId} pixelSize={1.5} />
+                <PixelCharacter characterId={r.characterId} pixelSize={2} />
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <div style={{
-                    fontSize: 6, color: isMe ? '#ffd700' : '#ccc',
+                    fontSize: 7, color: isMe ? '#ffd700' : '#ddd',
                     fontFamily: "'Press Start 2P', monospace",
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{r.nickname}</div>
-                  <div style={{ fontSize: 7, color: '#aaa', fontFamily: "'Press Start 2P', monospace" }}>
-                    {r.score.toLocaleString()}
+                    fontWeight: isMe ? 'bold' : 'normal',
+                  }}>{r.nickname}{isMe ? '(나)' : ''}</div>
+                  <div style={{
+                    fontSize: 8, fontFamily: "'Press Start 2P', monospace",
+                    color: isMe ? '#ffd700' : '#aaa',
+                  }}>
+                    {r.score.toLocaleString()}P
                   </div>
                 </div>
+                {/* 순위 변동 표시 - 크고 화려하게 */}
                 {change && (
                   <span style={{
-                    fontSize: 10, fontWeight: 'bold',
+                    fontSize: 16, fontWeight: 'bold',
                     color: change === 'up' ? '#00ff00' : '#ff4444',
-                    animation: 'scorePopup 1s ease-out',
+                    textShadow: `0 0 10px ${change === 'up' ? '#00ff00' : '#ff4444'}`,
+                    animation: 'rankArrowBounce 0.6s ease-out',
                   }}>
                     {change === 'up' ? '▲' : '▼'}
                   </span>
@@ -547,13 +659,6 @@ export default function CoopGame({ coopData, player, nickname, onEnd }) {
             );
           })}
         </div>
-      </div>
-
-      <div style={{
-        fontSize: 8, color: '#444', textAlign: 'center', padding: '4px 0',
-        fontFamily: "'Press Start 2P', monospace",
-      }}>
-        1~4 숫자키 | ESC 종료
       </div>
     </div>
   );
@@ -675,6 +780,51 @@ function Podium({ rankings, nickname }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// 폭죽 파티클 컴포넌트
+function Fireworks() {
+  const particles = useRef(
+    Array.from({ length: 40 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 40 + 10,
+      color: ['#ffd700', '#ff4444', '#00ff00', '#ff69b4', '#00ccff', '#ff8c00', '#aa44ff'][i % 7],
+      size: Math.random() * 6 + 3,
+      delay: Math.random() * 3,
+      duration: Math.random() * 2 + 1.5,
+      fwX: (Math.random() - 0.5) * 80 + 'px',
+      fwY: (Math.random() - 0.5) * 80 + 'px',
+    }))
+  ).current;
+
+  return (
+    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 10, overflow: 'hidden' }}>
+      {particles.map(p => (
+        <div key={p.id} style={{
+          position: 'absolute',
+          left: `${p.x}%`, top: `${p.y}%`,
+          width: p.size, height: p.size,
+          borderRadius: '50%',
+          background: p.color,
+          boxShadow: `0 0 ${p.size * 2}px ${p.color}`,
+          '--fw-x': p.fwX, '--fw-y': p.fwY,
+          animation: `firework ${p.duration}s ease-out ${p.delay}s infinite`,
+        }} />
+      ))}
+      {/* 콘페티 (떨어지는 종이) */}
+      {Array.from({ length: 20 }, (_, i) => (
+        <div key={`conf-${i}`} style={{
+          position: 'absolute',
+          left: `${Math.random() * 100}%`, top: -10,
+          width: 6, height: 10,
+          background: ['#ffd700', '#ff4444', '#00ff00', '#ff69b4', '#00ccff'][i % 5],
+          animation: `confettiFall ${Math.random() * 3 + 2}s linear ${Math.random() * 3}s infinite`,
+          borderRadius: 1,
+        }} />
+      ))}
     </div>
   );
 }
