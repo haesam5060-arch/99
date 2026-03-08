@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CHARACTER_SPRITES, CHARACTER_PALETTES } from '../data/characters';
+import { CHARACTER_SPRITES, CHARACTER_PALETTES, getRandomSkill } from '../data/characters';
 import { renderSprite } from '../utils/pixelRenderer';
 import { playClick } from '../utils/sound';
 import { FURNITURE_DEFS } from './Shop';
@@ -127,7 +127,8 @@ export default function MyRoom({ player, nickname, onBack }) {
     localStorage.setItem(`room_layout_${nickname}`, JSON.stringify(layout));
   }, [layout, nickname]);
 
-  // 바닥 영역 (실제 px)
+  // 바닥 영역 (실제 px) - 벽 30% 아래부터 92%까지
+  const floorTop = roomSize.h * 0.35;
   const floorBottom = roomSize.h * 0.92;
 
   // 캐릭터 초기 위치 (실제 px)
@@ -136,9 +137,10 @@ export default function MyRoom({ player, nickname, onBack }) {
     const states = ownedCharacters.map((id, i) => ({
       id,
       x: 40 + (i * (roomSize.w - 80) / Math.max(ownedCharacters.length, 1)),
-      y: floorBottom - Math.random() * 20,
+      y: floorTop + Math.random() * (floorBottom - floorTop),
       action: 'idle',
       targetX: null,
+      targetY: null,
       flip: Math.random() > 0.5,
       actionTimer: Date.now() + randRange(1000, 3000),
       interacting: null,
@@ -171,11 +173,19 @@ export default function MyRoom({ player, nickname, onBack }) {
         if (now < ch.actionTimer) {
           if (ch.action === 'walk' && ch.targetX != null) {
             const dx = ch.targetX - ch.x;
-            if (Math.abs(dx) < 3) {
+            const dy = (ch.targetY || ch.y) - ch.y;
+            if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
               const nextAction = ch.interacting || 'idle';
-              return { ...ch, x: ch.targetX, action: nextAction, targetX: null };
+              return { ...ch, x: ch.targetX, y: ch.targetY || ch.y, action: nextAction, targetX: null, targetY: null };
             }
-            return { ...ch, x: ch.x + Math.sign(dx) * 1.2, flip: dx < 0 };
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const speed = 1.2;
+            return {
+              ...ch,
+              x: ch.x + (dx / dist) * speed,
+              y: ch.y + (dy / dist) * speed,
+              flip: dx < 0,
+            };
           }
           return ch;
         }
@@ -188,26 +198,29 @@ export default function MyRoom({ player, nickname, onBack }) {
         else newAction = 'idle';
 
         const duration = randRange(...ACTION_DURATION[newAction]);
+        const fTop = roomSize.h * 0.35;
+        const fBot = roomSize.h * 0.92;
 
         if (newAction === 'walk') {
           const tx = 30 + Math.random() * (roomSize.w - 60);
-          return { ...ch, action: 'walk', targetX: tx, flip: tx < ch.x, actionTimer: now + duration, interacting: null };
+          const ty = fTop + Math.random() * (fBot - fTop);
+          return { ...ch, action: 'walk', targetX: tx, targetY: ty, flip: tx < ch.x, actionTimer: now + duration, interacting: null };
         }
         if (newAction === 'sleep') {
           const pos = findInteraction('sleep');
           if (pos && Math.abs(ch.x - pos.x) > 40) {
-            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sleep' };
+            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sleep' };
           }
-          return { ...ch, action: 'sleep', targetX: null, actionTimer: now + duration, interacting: 'sleep' };
+          return { ...ch, action: 'sleep', targetX: null, targetY: null, actionTimer: now + duration, interacting: 'sleep' };
         }
         if (newAction === 'sit') {
           const pos = findInteraction('sit');
           if (pos && Math.abs(ch.x - pos.x) > 40) {
-            return { ...ch, action: 'walk', targetX: pos.x, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sit' };
+            return { ...ch, action: 'walk', targetX: pos.x, targetY: pos.y, flip: pos.x < ch.x, actionTimer: now + 3000, interacting: 'sit' };
           }
-          return { ...ch, action: 'sit', targetX: null, actionTimer: now + duration, interacting: 'sit' };
+          return { ...ch, action: 'sit', targetX: null, targetY: null, actionTimer: now + duration, interacting: 'sit' };
         }
-        return { ...ch, action: 'idle', targetX: null, actionTimer: now + duration, interacting: null };
+        return { ...ch, action: 'idle', targetX: null, targetY: null, actionTimer: now + duration, interacting: null };
       }).map(ch => {
         const now = Date.now();
         // 말풍선 타이머
@@ -215,7 +228,11 @@ export default function MyRoom({ player, nickname, onBack }) {
           return { ...ch, speech: null, speechTimer: now + randRange(5000, 12000) };
         }
         if (!ch.speech && now > ch.speechTimer && ch.action !== 'sleep') {
-          return { ...ch, speech: SPEECH_BUBBLES[Math.floor(Math.random() * SPEECH_BUBBLES.length)], speechTimer: now + 3000 };
+          // 30% 확률로 기술명, 70% 확률로 일반 대사
+          const msg = Math.random() < 0.3
+            ? getRandomSkill(ch.id)
+            : SPEECH_BUBBLES[Math.floor(Math.random() * SPEECH_BUBBLES.length)];
+          return { ...ch, speech: msg, speechTimer: now + 3000 };
         }
         return ch;
       }));
@@ -278,11 +295,12 @@ export default function MyRoom({ player, nickname, onBack }) {
           50% { opacity: 1; transform: translateY(-8px); }
         }
         @keyframes speechBubble {
-          0% { opacity: 0; transform: translateX(-50%) scale(0.5); }
-          10% { opacity: 1; transform: translateX(-50%) scale(1.05); }
-          20% { transform: translateX(-50%) scale(1); }
-          80% { opacity: 1; transform: translateX(-50%) scale(1); }
-          100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.9); }
+          0% { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(4px); }
+          8% { opacity: 1; transform: translateX(-50%) scale(1.08) translateY(-2px); }
+          16% { transform: translateX(-50%) scale(0.97) translateY(0); }
+          24% { transform: translateX(-50%) scale(1) translateY(0); }
+          80% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+          100% { opacity: 0; transform: translateX(-50%) scale(0.9) translateY(-8px); }
         }
       `}</style>
 
@@ -404,39 +422,55 @@ export default function MyRoom({ player, nickname, onBack }) {
               sleeping={ch.action === 'sleep'}
               scale={SCALE}
             />
-            {ch.speech && (
-              <div style={{
-                position: 'absolute',
-                left: ch.x,
-                top: ch.y - 55,
-                transform: 'translateX(-50%)',
-                background: '#fff',
-                color: '#333',
-                fontSize: 7,
-                fontFamily: "'Press Start 2P', monospace",
-                padding: '4px 8px',
-                borderRadius: 6,
-                whiteSpace: 'nowrap',
-                zIndex: 9999,
-                pointerEvents: 'none',
-                animation: 'speechBubble 3s ease-in-out forwards',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-              }}>
-                {ch.speech}
+            {ch.speech && (() => {
+              const isSkill = ch.speech.endsWith('!');
+              const charName = CHARACTER_PALETTES[ch.id]?.name || '';
+              return (
                 <div style={{
-                  position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)',
-                  width: 0, height: 0,
-                  borderLeft: '5px solid transparent',
-                  borderRight: '5px solid transparent',
-                  borderTop: '5px solid #fff',
-                }} />
-              </div>
-            )}
+                  position: 'absolute',
+                  left: ch.x,
+                  top: ch.y - 60,
+                  transform: 'translateX(-50%)',
+                  transition: 'left 0.5s linear, top 0.3s linear',
+                  background: isSkill
+                    ? 'linear-gradient(135deg, #ffe066, #ffcc00)'
+                    : 'linear-gradient(135deg, #ffffff, #e8e8ff)',
+                  color: isSkill ? '#8b4513' : '#333',
+                  fontSize: 7,
+                  fontFamily: "'Press Start 2P', monospace",
+                  padding: '5px 10px 4px',
+                  borderRadius: 8,
+                  whiteSpace: 'nowrap',
+                  zIndex: 9999,
+                  pointerEvents: 'none',
+                  animation: 'speechBubble 3s ease-in-out forwards',
+                  boxShadow: isSkill
+                    ? '0 2px 8px rgba(255,200,0,0.5), inset 0 1px 0 rgba(255,255,255,0.5)'
+                    : '0 2px 6px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8)',
+                  border: isSkill ? '1.5px solid #e6a800' : '1px solid #ccccee',
+                  textAlign: 'center',
+                  lineHeight: 1.6,
+                }}>
+                  <div style={{ fontSize: 5, color: isSkill ? '#996600' : '#888', marginBottom: 1 }}>
+                    {charName}
+                  </div>
+                  {ch.speech}
+                  <div style={{
+                    position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+                    width: 0, height: 0,
+                    borderLeft: '6px solid transparent',
+                    borderRight: '6px solid transparent',
+                    borderTop: isSkill ? '6px solid #ffcc00' : '6px solid #e8e8ff',
+                  }} />
+                </div>
+              );
+            })()}
             {ch.action === 'sleep' && (
               <div style={{
                 position: 'absolute',
                 left: ch.x + 10,
                 top: ch.y - 50,
+                transition: 'left 0.5s linear, top 0.3s linear',
                 fontSize: 10, color: '#aaccff',
                 fontFamily: "'Press Start 2P', monospace",
                 animation: 'zzzFloat 2s ease-in-out infinite',

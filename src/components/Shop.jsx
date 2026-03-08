@@ -387,10 +387,6 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
 
   // ── 가구 구매 ──
   const handleBuyFurniture = async (furnitureId) => {
-    if (ownedFurniture.includes(furnitureId)) {
-      showMessage('이미 보유중!');
-      return;
-    }
     if (player.score < FURNITURE_PRICE) {
       playWrong();
       showMessage('포인트가 부족합니다!');
@@ -662,32 +658,30 @@ export default function Shop({ player, nickname, onUpdate, onBack }) {
         }}>
           {FURNITURE_IDS.map(fId => {
             const f = FURNITURE_DEFS[fId];
-            const owned = ownedFurniture.includes(fId);
+            const ownedCount = ownedFurniture.filter(id => id === fId).length;
             return (
               <button
                 key={fId}
                 onClick={() => handleBuyFurniture(fId)}
-                disabled={owned}
                 style={{
-                  background: owned ? '#1a1a3e' : '#141450',
-                  border: owned ? '2px solid #336633' : '2px solid #333366',
-                  borderRadius: 6, padding: 10, cursor: owned ? 'default' : 'pointer',
+                  background: '#141450',
+                  border: ownedCount > 0 ? '2px solid #336633' : '2px solid #333366',
+                  borderRadius: 6, padding: 10, cursor: 'pointer',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                  opacity: owned ? 0.6 : 1,
                 }}
               >
                 <div style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}>
                   <FurnitureCanvas furnitureId={fId} scale={2} />
                 </div>
                 <div style={{ fontSize: 10, color: '#fff', fontFamily: "'Press Start 2P', monospace" }}>
-                  {f.name}
+                  {f.name} {ownedCount > 0 ? `x${ownedCount}` : ''}
                 </div>
                 <div style={{
                   fontSize: 9,
-                  color: owned ? '#33aa55' : 'var(--gold)',
+                  color: 'var(--gold)',
                   fontFamily: "'Press Start 2P', monospace",
                 }}>
-                  {owned ? '보유중' : `${FURNITURE_PRICE.toLocaleString()} P`}
+                  {FURNITURE_PRICE.toLocaleString()} P
                 </div>
               </button>
             );
